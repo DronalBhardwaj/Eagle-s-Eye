@@ -1,0 +1,1962 @@
+CREATE DATABASE ERMS;
+USE ERMS;
+
+-- Users Table
+CREATE TABLE Users 
+(
+    user_id INT AUTO_INCREMENT PRIMARY KEY,
+    user_type ENUM('administrator', 'manager', 'employee') NOT NULL,
+    user_name VARCHAR(100) NOT NULL,
+    date_of_birth DATE NOT NULL,
+    user_designation VARCHAR(100) DEFAULT NULL,
+    signup_method ENUM('google', 'facebook', 'linkedin', 'github', 'email', 'mobile') NOT NULL,
+    mobile_number VARCHAR(15) UNIQUE,
+    email_id VARCHAR(100) UNIQUE,
+    password_hash VARCHAR(255),
+    google_id VARCHAR(255) UNIQUE,
+    facebook_id VARCHAR(255) UNIQUE,
+    linkedin_id VARCHAR(255) UNIQUE,
+    github_id VARCHAR(255) UNIQUE,
+    login_approval BOOLEAN DEFAULT FALSE,
+    login_message VARCHAR(255),
+    user_image BLOB,
+    active_on TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deactive_on TIMESTAMP DEFAULT null
+);
+
+-- Projects Table
+CREATE TABLE Projects 
+(
+    project_id INT AUTO_INCREMENT PRIMARY KEY,
+    project_name VARCHAR(255) NOT NULL,
+    client_name VARCHAR(255) NOT NULL,
+    project_department VARCHAR(255) NOT NULL,
+    project_description TEXT,
+    project_status ENUM('Hold', 'To Do', 'Completed') NOT NULL DEFAULT 'Hold',
+    project_deadline DATE NOT NULL,
+    assigned_date DATE NOT NULL,
+    project_report BLOB,
+    project_technology TEXT
+);
+
+CREATE TABLE Project_Details 
+(
+    project_id INT AUTO_INCREMENT PRIMARY KEY,
+    project_name VARCHAR(255) NOT NULL,
+    client_name VARCHAR(255) NOT NULL,
+    project_department VARCHAR(255) NOT NULL,
+    project_description TEXT,
+    project_status ENUM('Hold', 'To Do', 'Completed') NOT NULL DEFAULT 'Hold',
+    project_deadline DATE NOT NULL,
+    assigned_date DATE NOT NULL,
+    project_report BLOB,
+    project_technology TEXT,
+    manager_details TEXT,  -- Stores concatenated manager details
+    employee_details TEXT  -- Stores concatenated employee details
+);
+
+
+-- Technologies Table
+CREATE TABLE Technologies 
+(
+    tech_id INT AUTO_INCREMENT PRIMARY KEY,
+    technology VARCHAR(255) NOT NULL,
+    technology_status ENUM('Active', 'InActive') NOT NULL,
+    color VARCHAR(7) NOT NULL -- Stores HEX codes like '#FF5733'
+);
+
+
+-- Departments Table
+CREATE TABLE Departments 
+(
+    dept_id INT AUTO_INCREMENT PRIMARY KEY,
+    department VARCHAR(255) NOT NULL,
+    department_status ENUM('Active', 'InActive') NOT NULL,
+    color VARCHAR(7) NOT NULL -- Stores HEX codes like '#FF5733'
+);
+
+-- Project Reports Table
+CREATE TABLE Project_Reports 
+(
+    report_id AUTO_INCREMENT INT PRIMARY KEY,
+    project_id INT NOT NULL,
+    user_id INT NOT NULL,
+    project_report BLOB,
+    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES Projects(project_id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
+);
+
+-- Project Employees Table (Many-to-Many for Employees)
+CREATE TABLE Project_Employees 
+(
+    project_employee_id INT AUTO_INCREMENT PRIMARY KEY,
+    project_id INT NOT NULL,
+    user_id INT NOT NULL,  -- Refers to the Users table (where user_type = 'employee')
+    employee_role_assigned VARCHAR(255),
+    employee_name VARCHAR(255),
+    manager_name INT DEFAULT NULL, -- References user_id of a manager
+    manager_role_assigned INT DEFAULT NULL,
+    project_accepted BOOLEAN DEFAULT FALSE,
+    FOREIGN KEY (project_id) REFERENCES Projects(project_id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (manager_name) REFERENCES Project_Managers(manager_name) ON SET NULL,
+    FOREIGN KEY (manager_role_assigned) REFERENCES Project_Managers(manager_role_assigned) ON SET NULL
+);
+
+-- Project Managers Table (Many-to-Many for Managers)
+CREATE TABLE Project_Managers 
+(
+    project_manager_id INT AUTO_INCREMENT PRIMARY KEY,
+    project_id INT NOT NULL,
+    user_id INT NOT NULL,  -- Refers to the Users table (where user_type = 'manager')
+    manager_role_assigned VARCHAR(255),
+    manager_name VARCHAR(255),
+    project_accepted BOOLEAN DEFAULT FALSE,
+    FOREIGN KEY (project_id) REFERENCES Projects(project_id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE SET NULL
+);
+
+-- Company Settings Table
+CREATE TABLE Company_Settings 
+(
+    company_id INT AUTO_INCREMENT PRIMARY KEY,
+    company_name VARCHAR(255) NOT NULL,
+    company_email VARCHAR(255) NOT NULL,
+    app_Name VARCHAR(255) NOT NULL,
+    company_Contact INT,
+    company_Address VARCHAR(255) NOT NULL,
+    company_Website VARCHAR(255) NOT NULL,
+    app_Logo BLOB,
+    app_Favicon BLOB
+);
+
+-- Dashboard Counter Table
+CREATE TABLE Dashboard_Counter 
+(
+    user_id INT PRIMARY KEY,
+    project_id INT,
+    projects_To_Do INT,
+    projects_Completed INT,
+    report_Uploads INT,
+    projects_Hold INT,
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE SET NULL,
+    FOREIGN KEY (project_id) REFERENCES Projects(project_id) ON DELETE SET NULL
+);
+
+
+-- Insert default administrator user
+INSERT INTO Users (user_type, user_name, date_of_birth, signup_method, mobile_number, email_id, password_hash, login_approval, active_on) 
+VALUES ('administrator', 'Dronal Bhardwaj', '1997-05-31', email, '8449655466', 'dronalbhardwaj3197@gmail.com', 'qwerty1234', TRUE, 2025-05-31);
+
+
+-- Procedure for User Signup
+DELIMITER $$
+
+CREATE PROCEDURE UserSignup
+(
+    IN p_user_data JSON
+)
+BEGIN
+    DECLARE existing_user INT;
+
+    -- Extract values from JSON
+    DECLARE v_user_type ENUM('administrator', 'manager', 'employee');
+    DECLARE v_user_name VARCHAR(100);
+    DECLARE v_date_of_birth DATE;
+    DECLARE v_signup_method ENUM('google', 'facebook', 'linkedin', 'github', 'email', 'mobile');
+    DECLARE v_mobile_number VARCHAR(15);
+    DECLARE v_email_id VARCHAR(100);
+    DECLARE v_google_id VARCHAR(255);
+    DECLARE v_facebook_id VARCHAR(255);
+    DECLARE v_linkedin_id VARCHAR(255);
+    DECLARE v_github_id VARCHAR(255);
+    DECLARE v_password_hash VARCHAR(255);
+    DECLARE v_active_on TIMESTAMP;
+
+    SET v_user_type = JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.user_type'));
+    SET v_user_name = JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.user_name'));
+    SET v_date_of_birth = JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.date_of_birth'));
+    SET v_signup_method = JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.signup_method'));
+    SET v_mobile_number = JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.mobile_number'));
+    SET v_email_id = JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.email_id'));
+    SET v_google_id = JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.google_id'));
+    SET v_facebook_id = JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.facebook_id'));
+    SET v_linkedin_id = JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.linkedin_id'));
+    SET v_github_id = JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.github_id'));
+    SET v_password_hash = JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.password_hash'));
+    SET v_active_on = CURRENT_TIMESTAMP;
+
+    -- Check if user already exists
+    SELECT COUNT(*) INTO existing_user
+    FROM Users
+    WHERE email_id = v_email_id OR mobile_number = v_mobile_number;
+
+    IF existing_user > 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'User already exists';
+    END IF;
+
+    -- Insert new user
+    INSERT INTO Users 
+    (
+        user_type, user_name, date_of_birth, signup_method,
+        mobile_number, email_id, google_id, facebook_id,
+        linkedin_id, github_id, password_hash, login_approval, active_on
+    )
+    VALUES 
+    (
+        v_user_type, v_user_name, v_date_of_birth, v_signup_method,
+        v_mobile_number, v_email_id, v_google_id, v_facebook_id,
+        v_linkedin_id, v_github_id, v_password_hash, FALSE, v_active_on
+    );
+END $$
+
+DELIMITER ;
+
+
+-- Procedure for Sign In
+DELIMITER $$
+
+CREATE PROCEDURE SignIn
+(
+    IN p_login_data JSON,
+    OUT confirmation_message VARCHAR(255)
+)
+BEGIN
+    DECLARE v_email_or_mobile VARCHAR(100);
+    DECLARE v_password VARCHAR(255);
+    DECLARE v_login_method ENUM('google', 'facebook', 'linkedin', 'github', 'email', 'mobile');
+
+    DECLARE user_approval_status BOOLEAN;
+    DECLARE stored_password VARCHAR(255);
+    DECLARE account_deactivated TIMESTAMP;
+    DECLARE google_id VARCHAR(255);
+    DECLARE facebook_id VARCHAR(255);
+    DECLARE linkedin_id VARCHAR(255);
+    DECLARE github_id VARCHAR(255);
+
+    -- Extract values from JSON input
+    SET v_email_or_mobile = JSON_UNQUOTE(JSON_EXTRACT(p_login_data, '$.email_or_mobile'));
+    SET v_password = JSON_UNQUOTE(JSON_EXTRACT(p_login_data, '$.password'));
+    SET v_login_method = JSON_UNQUOTE(JSON_EXTRACT(p_login_data, '$.login_method'));
+
+    -- Retrieve required fields from Users table
+    SELECT 
+        login_approval, password_hash, deactive_on, google_id, facebook_id, linkedin_id, github_id
+    INTO 
+        user_approval_status, stored_password, account_deactivated, 
+        google_id, facebook_id, linkedin_id, github_id
+    FROM Users
+    WHERE email_id = v_email_or_mobile OR mobile_number = v_email_or_mobile 
+       OR google_id = v_email_or_mobile OR facebook_id = v_email_or_mobile 
+       OR linkedin_id = v_email_or_mobile OR github_id = v_email_or_mobile
+    LIMIT 1;
+
+    -- Validate based on approval and credentials
+    IF user_approval_status IS NULL THEN 
+        SET confirmation_message = 'Profile under approval';
+    ELSEIF user_approval_status = FALSE THEN
+        SET confirmation_message = 'User not found';
+    ELSEIF account_deactivated IS NOT NULL THEN
+        SET confirmation_message = 'User profile is inactive now';
+    ELSEIF v_login_method IN ('google', 'facebook', 'linkedin', 'github') THEN
+        IF (v_login_method = 'google' AND google_id IS NOT NULL) OR
+           (v_login_method = 'facebook' AND facebook_id IS NOT NULL) OR
+           (v_login_method = 'linkedin' AND linkedin_id IS NOT NULL) OR
+           (v_login_method = 'github' AND github_id IS NOT NULL) THEN
+            SET confirmation_message = 'true';
+        ELSE
+            SET confirmation_message = 'Invalid credentials';
+        END IF;
+    ELSEIF stored_password IS NOT NULL AND stored_password = v_password THEN
+        SET confirmation_message = 'true';
+    ELSE
+        SET confirmation_message = 'Invalid credentials';
+    END IF;
+END $$
+
+DELIMITER ;
+
+
+--Procedure for Updating Dashboard Counter
+DELIMITER $$
+
+CREATE PROCEDURE UpdateDashboardCounter
+(
+    IN p_user_id INT
+)
+BEGIN
+    -- Insert or update dashboard counter values
+    INSERT INTO Dashboard_Counter (user_id, projects_To_Do, projects_Completed, report_Uploads, projects_Hold)
+    SELECT 
+        p_user_id,
+        COALESCE(SUM(CASE WHEN p.project_status = 'To Do' THEN 1 ELSE 0 END), 0),
+        COALESCE(SUM(CASE WHEN p.project_status = 'Completed' THEN 1 ELSE 0 END), 0),
+        COALESCE(COUNT(pr.report_id), 0),
+        COALESCE(SUM(CASE WHEN p.project_status = 'Hold' THEN 1 ELSE 0 END), 0)
+    FROM Users u
+    LEFT JOIN Project_Employees pe ON u.user_id = pe.user_id
+    LEFT JOIN Project_Managers pm ON u.user_id = pm.user_id
+    LEFT JOIN Projects p ON pe.project_id = p.project_id OR pm.project_id = p.project_id
+    LEFT JOIN Project_Reports pr ON u.user_id = pr.user_id
+    WHERE u.user_id = p_user_id
+    GROUP BY u.user_id
+    ON DUPLICATE KEY UPDATE 
+        projects_To_Do = VALUES(projects_To_Do),
+        projects_Completed = VALUES(projects_Completed),
+        report_Uploads = VALUES(report_Uploads),
+        projects_Hold = VALUES(projects_Hold);
+
+    -- Return the updated dashboard data as JSON
+    SELECT JSON_OBJECT
+    (
+        'projects_To_Do', projects_To_Do,
+        'projects_Completed', projects_Completed,
+        'report_Uploads', report_Uploads,
+        'projects_Hold', projects_Hold
+    ) AS dashboard_summary
+    FROM Dashboard_Counter
+    WHERE user_id = p_user_id;
+END $$
+
+DELIMITER ;
+
+
+--Procedure for displaying all Departments
+DELIMITER $$
+
+CREATE PROCEDURE displayDepartments()
+BEGIN
+    SELECT JSON_ARRAYAGG
+    (
+        JSON_OBJECT
+        (
+            'dept_id', dept_id,
+            'department', department,
+            'department_status', department_status,
+            'color', color
+        )
+    ) AS departments
+    FROM Departments;
+END $$
+
+DELIMITER ;
+
+
+--Procedure for displaying all Technologies
+DELIMITER $$
+
+CREATE PROCEDURE displayTechnologies()
+BEGIN
+    SELECT JSON_ARRAYAGG
+    (
+        JSON_OBJECT
+        (
+            'tech_id', tech_id,
+            'technology', technology,
+            'technology_status', technology_status,
+            'color', color
+        )
+    ) AS technologies
+    FROM Technologies;
+END $$
+
+DELIMITER ;
+
+
+-- Procedure to get particular Department
+DELIMITER $$
+
+CREATE PROCEDURE GetDepartmentWithOptions
+(
+    IN p_dept_id INT
+)
+BEGIN
+    DECLARE enum_status_list TEXT;
+    DECLARE enum_department_list TEXT;
+    DECLARE department_json JSON;
+    DECLARE department_status_options JSON;
+    DECLARE department_options JSON;
+
+    -- Fetch ENUM list for department_status
+    SELECT 
+        REPLACE(REPLACE(REPLACE(COLUMN_TYPE, 'enum(', ''), ')', ''), '''', '') 
+    INTO enum_status_list
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_NAME = 'Departments'
+      AND COLUMN_NAME = 'department_status'
+      AND TABLE_SCHEMA = DATABASE();
+
+    -- Fetch ENUM list for department
+    SELECT 
+        REPLACE(REPLACE(REPLACE(COLUMN_TYPE, 'enum(', ''), ')', ''), '''', '') 
+    INTO enum_department_list
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_NAME = 'Departments'
+      AND COLUMN_NAME = 'department'
+      AND TABLE_SCHEMA = DATABASE();
+
+    -- Current Department data
+    SELECT JSON_OBJECT
+    (
+        'department', department,
+        'department_status', department_status,
+        'color', color
+    ) INTO department_json
+    FROM Departments
+    WHERE dept_id = p_dept_id;
+
+    -- Options for department_status ENUM
+    SELECT JSON_ARRAYAGG(TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(enum_status_list, ',', numbers.n), ',', -1)))
+    INTO department_status_options
+    FROM
+    (
+        SELECT 1 n UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5 
+        UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9 UNION SELECT 10
+    ) numbers
+    WHERE n <= (LENGTH(enum_status_list) - LENGTH(REPLACE(enum_status_list, ',', '')) + 1);
+
+    -- Options for department ENUM
+    SELECT JSON_ARRAYAGG(TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(enum_department_list, ',', numbers.n), ',', -1)))
+    INTO department_options
+    FROM
+    (
+        SELECT 1 n UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5 
+        UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9 UNION SELECT 10
+    ) numbers
+    WHERE n <= (LENGTH(enum_department_list) - LENGTH(REPLACE(enum_department_list, ',', '')) + 1);
+
+    -- Final JSON Output
+    SELECT JSON_OBJECT
+    (
+        'department', department_json,
+        'department_status_options', department_status_options,
+        'department_options', department_options
+    ) AS department_details;
+
+END $$
+DELIMITER ;
+
+
+-- Procedure to delete any department
+DELIMITER $$
+
+CREATE PROCEDURE DeleteDepartmentByAdmin
+(
+    IN p_user_id INT,
+    IN p_dept_id INT
+)
+BEGIN
+    DECLARE is_admin INT DEFAULT 0;
+
+    -- Step 1: Check if user is an administrator
+    SELECT COUNT(*) INTO is_admin
+    FROM Users
+    WHERE user_id = p_user_id AND user_type = 'administrator';
+
+    -- Step 2: Proceed with deletion if administrator
+    IF is_admin = 1 THEN
+        DELETE FROM Departments WHERE dept_id = p_dept_id;
+
+        -- Return success confirmation
+        SELECT JSON_OBJECT('status', 'success', 'message', 'Department deleted successfully.') AS response;
+    ELSE
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Access Denied: Only administrators can delete department records.';
+    END IF;
+END $$
+
+DELIMITER ;
+
+
+-- Procedure to get particular Technology
+DELIMITER $$
+
+CREATE PROCEDURE GetTechnologyWithOptions
+(
+    IN p_tech_id INT
+)
+BEGIN
+    DECLARE v_technology VARCHAR(255);
+    DECLARE v_technology_status ENUM('Active', 'InActive');
+    DECLARE v_color VARCHAR(7);
+    DECLARE enum_status_list TEXT;
+    DECLARE enum_technology_list TEXT;
+
+    -- Fetch current technology record
+    SELECT 
+        technology,
+        technology_status,
+        color
+    INTO 
+        v_technology,
+        v_technology_status,
+        v_color
+    FROM Technologies
+    WHERE tech_id = p_tech_id;
+
+    -- Fetch ENUM list for technology_status
+    SELECT 
+        REPLACE(REPLACE(REPLACE(COLUMN_TYPE, 'enum(', ''), ')', ''), '''', '') 
+    INTO enum_status_list
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_NAME = 'Technologies'
+      AND COLUMN_NAME = 'technology_status'
+      AND TABLE_SCHEMA = 'your_database_name';  -- << Change this
+
+    -- Fetch ENUM list for technology (if it’s an ENUM, otherwise skip this part if not ENUM)
+    SELECT 
+        REPLACE(REPLACE(REPLACE(COLUMN_TYPE, 'enum(', ''), ')', ''), '''', '') 
+    INTO enum_technology_list
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_NAME = 'Technologies'
+      AND COLUMN_NAME = 'technology'
+      AND TABLE_SCHEMA = 'your_database_name';  -- << Change this
+
+    -- Final JSON Response
+    SELECT JSON_OBJECT
+    (
+        'current_technology', JSON_OBJECT('technology', v_technology, 'technology_status', v_technology_status, 'color', v_color),
+        'available_technology_status', JSON_ARRAYAGG(TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(enum_status_list, ',', n.n), ',', -1))),
+        'available_technology', JSON_ARRAYAGG(TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(enum_technology_list, ',', n.n), ',', -1)))
+    ) AS technology_data
+    FROM 
+    (
+        SELECT 1 n UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5 
+        UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9 UNION SELECT 10
+    ) n
+    WHERE n.n <= (LENGTH(enum_status_list) - LENGTH(REPLACE(enum_status_list, ',', '')) + 1);
+    
+END $$
+
+DELIMITER ;
+
+
+--Procedure to delete any technology
+DELIMITER $$
+
+CREATE PROCEDURE DeleteTechnologyByAdmin
+(
+    IN p_user_id INT,
+    IN p_tech_id INT
+)
+BEGIN
+    DECLARE is_admin INT DEFAULT 0;
+
+    -- Step 1: Check if the user is an administrator
+    SELECT COUNT(*) INTO is_admin
+    FROM Users
+    WHERE user_id = p_user_id AND user_type = 'administrator';
+
+    -- Step 2: If administrator, delete the technology
+    IF is_admin = 1 THEN
+        DELETE FROM Technologies WHERE tech_id = p_tech_id;
+
+        -- Return success message
+        SELECT JSON_OBJECT('status', 'success', 'message', 'Technology deleted successfully.') AS response;
+    ELSE
+        -- If not administrator, raise an error
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Access Denied: Only administrators can delete technology records.';
+    END IF;
+END $$
+
+DELIMITER ;
+
+
+--Procedure for updating Departments
+DELIMITER $$
+
+CREATE PROCEDURE UpdateDepartment
+(
+    IN p_department_data JSON
+)
+BEGIN
+    DECLARE v_dept_id INT;
+    DECLARE v_department VARCHAR(255);
+    DECLARE v_department_status ENUM('Active', 'InActive');
+    DECLARE v_color VARCHAR(7);
+
+    -- Extract values from the JSON object
+    SET v_dept_id = JSON_UNQUOTE(JSON_EXTRACT(p_department_data, '$.dept_id'));
+    SET v_department = JSON_UNQUOTE(JSON_EXTRACT(p_department_data, '$.department'));
+    SET v_department_status = JSON_UNQUOTE(JSON_EXTRACT(p_department_data, '$.department_status'));
+    SET v_color = JSON_UNQUOTE(JSON_EXTRACT(p_department_data, '$.color'));
+
+    -- Update the department
+    UPDATE Departments
+    SET 
+        department = v_department,
+        department_status = v_department_status,
+        color = v_color
+    WHERE dept_id = v_dept_id;
+END $$
+
+DELIMITER ;
+
+
+--Procedure for updating Technologies
+DELIMITER $$
+
+CREATE PROCEDURE UpdateTechnology
+(
+    IN p_technology_data JSON
+)
+BEGIN
+    DECLARE v_tech_id INT;
+    DECLARE v_technology VARCHAR(255);
+    DECLARE v_technology_status ENUM('Active', 'InActive');
+    DECLARE v_color VARCHAR(7);
+
+    -- Extract values from JSON input
+    SET v_tech_id = JSON_UNQUOTE(JSON_EXTRACT(p_technology_data, '$.tech_id'));
+    SET v_technology = JSON_UNQUOTE(JSON_EXTRACT(p_technology_data, '$.technology'));
+    SET v_technology_status = JSON_UNQUOTE(JSON_EXTRACT(p_technology_data, '$.technology_status'));
+    SET v_color = JSON_UNQUOTE(JSON_EXTRACT(p_technology_data, '$.color'));
+
+    -- Update the Technologies table
+    UPDATE Technologies
+    SET 
+        technology = v_technology,
+        technology_status = v_technology_status,
+        color = v_color
+    WHERE tech_id = v_tech_id;
+END $$
+
+DELIMITER ;
+
+
+-- Procedure to insert Project details
+DELIMITER $$
+
+CREATE PROCEDURE InsertProjectDetails
+(
+    IN p_input JSON
+)
+BEGIN
+    DECLARE v_project_id INT;
+    DECLARE v_user_id INT;
+    DECLARE v_project_name VARCHAR(255);
+    DECLARE v_client_name VARCHAR(255);
+    DECLARE v_project_department VARCHAR(255);
+    DECLARE v_project_description TEXT;
+    DECLARE v_project_deadline DATE;
+    DECLARE v_assigned_date DATE;
+    DECLARE v_project_report BLOB;
+    DECLARE v_project_technology TEXT;
+    DECLARE v_employee_names TEXT;
+    DECLARE v_employee_roles TEXT;
+    DECLARE v_manager_names TEXT;
+    DECLARE v_manager_roles TEXT;
+
+    DECLARE employee_name VARCHAR(255);
+    DECLARE employee_role VARCHAR(255);
+    DECLARE manager_name VARCHAR(255);
+    DECLARE manager_role VARCHAR(255);
+    DECLARE user_emp_id INT;
+    DECLARE user_mgr_id INT;
+    DECLARE done INT DEFAULT 0;
+
+    -- Extract fields from JSON input
+    SET v_user_id = JSON_UNQUOTE(JSON_EXTRACT(p_input, '$.user_id'));
+    SET v_project_name = JSON_UNQUOTE(JSON_EXTRACT(p_input, '$.project_name'));
+    SET v_client_name = JSON_UNQUOTE(JSON_EXTRACT(p_input, '$.client_name'));
+    SET v_project_department = JSON_UNQUOTE(JSON_EXTRACT(p_input, '$.project_department'));
+    SET v_project_description = JSON_UNQUOTE(JSON_EXTRACT(p_input, '$.project_description'));
+    SET v_project_deadline = JSON_UNQUOTE(JSON_EXTRACT(p_input, '$.project_deadline'));
+    SET v_assigned_date = JSON_UNQUOTE(JSON_EXTRACT(p_input, '$.assigned_date'));
+    SET v_project_report = FROM_BASE64(JSON_UNQUOTE(JSON_EXTRACT(p_input, '$.project_report')));
+    SET v_project_technology = JSON_UNQUOTE(JSON_EXTRACT(p_input, '$.project_technology'));
+    SET v_employee_names = JSON_UNQUOTE(JSON_EXTRACT(p_input, '$.employee_names'));
+    SET v_employee_roles = JSON_UNQUOTE(JSON_EXTRACT(p_input, '$.employee_roles'));
+    SET v_manager_names = JSON_UNQUOTE(JSON_EXTRACT(p_input, '$.manager_names'));
+    SET v_manager_roles = JSON_UNQUOTE(JSON_EXTRACT(p_input, '$.manager_roles'));
+
+    -- Insert into Projects
+    INSERT INTO Projects 
+    (
+        project_name, client_name, project_department, project_description, 
+        project_status, project_deadline, assigned_date, project_report, project_technology
+    )
+    VALUES 
+    (
+        v_project_name, v_client_name, v_project_department, v_project_description, 
+        'Hold', v_project_deadline, v_assigned_date, v_project_report, v_project_technology
+    );
+
+    SET v_project_id = LAST_INSERT_ID();
+
+    -- Insert into Project_Reports if project_report exists
+    IF v_project_report IS NOT NULL THEN
+        INSERT INTO Project_Reports (project_id, user_id, project_report)
+        VALUES (v_project_id, v_user_id, v_project_report);
+    END IF;
+
+    -- Process Managers
+    DECLARE mgr_cursor CURSOR FOR 
+        SELECT TRIM(value) 
+        FROM JSON_TABLE(CONCAT('["', REPLACE(v_manager_names, ',', '","'), '"]')
+            COLUMNS (value VARCHAR(255) PATH '$'));
+
+    DECLARE role_mgr_cursor CURSOR FOR 
+        SELECT TRIM(value) 
+        FROM JSON_TABLE(CONCAT('["', REPLACE(v_manager_roles, ',', '","'), '"]')
+            COLUMNS (value VARCHAR(255) PATH '$'));
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
+
+    OPEN mgr_cursor;
+    OPEN role_mgr_cursor;
+
+    SET done = 0;
+    read_mgr: LOOP
+        FETCH mgr_cursor INTO manager_name;
+        FETCH role_mgr_cursor INTO manager_role;
+        IF done THEN
+            LEAVE read_mgr;
+        END IF;
+
+        SELECT user_id INTO user_mgr_id 
+        FROM Users 
+        WHERE user_name = manager_name AND user_type = 'manager' 
+        LIMIT 1;
+
+        IF user_mgr_id IS NOT NULL THEN
+            INSERT INTO Project_Managers (project_id, user_id, manager_role_assigned, manager_name, project_accepted)
+            VALUES (v_project_id, user_mgr_id, manager_role, manager_name, FALSE);
+        END IF;
+    END LOOP;
+
+    CLOSE mgr_cursor;
+    CLOSE role_mgr_cursor;
+
+    -- Process Employees
+    SET done = 0;
+    DECLARE emp_cursor CURSOR FOR 
+        SELECT TRIM(value) 
+        FROM JSON_TABLE(CONCAT('["', REPLACE(v_employee_names, ',', '","'), '"]')
+            COLUMNS (value VARCHAR(255) PATH '$'));
+
+    DECLARE role_emp_cursor CURSOR FOR 
+        SELECT TRIM(value) 
+        FROM JSON_TABLE(CONCAT('["', REPLACE(v_employee_roles, ',', '","'), '"]')
+            COLUMNS (value VARCHAR(255) PATH '$'));
+
+    OPEN emp_cursor;
+    OPEN role_emp_cursor;
+
+    read_emp: LOOP
+        FETCH emp_cursor INTO employee_name;
+        FETCH role_emp_cursor INTO employee_role;
+        IF done THEN
+            LEAVE read_emp;
+        END IF;
+
+        SELECT user_id INTO user_emp_id 
+        FROM Users 
+        WHERE user_name = employee_name AND user_type = 'employee' 
+        LIMIT 1;
+
+        IF user_emp_id IS NOT NULL THEN
+            INSERT INTO Project_Employees (project_id, user_id, employee_role_assigned, employee_name, project_accepted)
+            VALUES (v_project_id, user_emp_id, employee_role, employee_name, FALSE);
+        END IF;
+    END LOOP;
+
+    CLOSE emp_cursor;
+    CLOSE role_emp_cursor;
+
+    -- Return result
+    SELECT JSON_OBJECT
+    (
+        'message', 'Project inserted successfully',
+        'project_id', v_project_id
+    ) AS result;
+END $$
+
+DELIMITER ;
+
+
+-- Procedure for concatenation of Project details with user roles
+DELIMITER //
+
+CREATE PROCEDURE PreparedProjectDetails()
+BEGIN
+
+    -- Insert new records into Project_Details
+    INSERT INTO Project_Details 
+    (
+        project_id, project_name, client_name, project_department, 
+        project_description, project_status, project_deadline, assigned_date, project_report, project_technology,
+        manager_details, employee_details
+    )
+    SELECT 
+        p.project_id,
+        p.project_name,
+        p.client_name,
+        p.project_department,
+        p.project_description,
+        p.project_status,
+        p.project_deadline,
+        p.assigned_date,
+        p.project_report,
+        p.project_technology,
+        
+        
+        -- Concatenate manager names with roles
+        (
+            SELECT GROUP_CONCAT(CONCAT(pm.manager_name, ' (', pm.manager_role_assigned, ')') SEPARATOR ', ')
+            FROM Project_Managers pm
+            WHERE pm.project_id = p.project_id
+        ) AS manager_details,
+        -- Concatenate employee names with roles
+        (
+            SELECT GROUP_CONCAT(CONCAT(pe.employee_name, ' (', pe.employee_role_assigned, ')') SEPARATOR ', ')
+            FROM Project_Employees pe
+            WHERE pe.project_id = p.project_id
+        ) AS employee_details
+    FROM Projects p;
+
+END //
+
+DELIMITER ;
+
+
+-- Procedure to display all Project Details
+DELIMITER $$
+
+CREATE PROCEDURE GetUserProjectDetails(IN p_user_id INT)
+BEGIN
+    DECLARE v_user_name VARCHAR(255);
+
+    -- Retrieve user_name associated with the provided user_id
+    SELECT user_name INTO v_user_name
+    FROM Users
+    WHERE user_id = p_user_id;
+
+    -- Return matching project details as JSON array
+    SELECT JSON_ARRAYAGG
+    (
+        JSON_OBJECT
+        (
+            'project_id', pd.project_id,
+            'project_name', pd.project_name,
+            'client_name', pd.client_name,
+            'project_department', pd.project_department,
+            'project_description', pd.project_description,
+            'project_status', pd.project_status,
+            'project_deadline', pd.project_deadline,
+            'assigned_date', pd.assigned_date,
+            'project_report', TO_BASE64(pd.project_report),
+            'project_technology', pd.project_technology,
+            'manager_details', pd.manager_details,
+            'employee_details', pd.employee_details
+        )
+    ) AS project_data
+    FROM Project_Details pd
+    WHERE 
+        EXISTS (
+            SELECT 1
+            FROM (
+                SELECT TRIM(SUBSTRING_INDEX(manager, ' (', 1)) AS manager_name
+                FROM (
+                    SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(pd.manager_details, ', ', n.digit+1), ', ', -1) AS manager
+                    FROM (
+                        SELECT 0 digit UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION 
+                               SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9
+                    ) n
+                    WHERE LENGTH(pd.manager_details) - LENGTH(REPLACE(pd.manager_details, ',', '')) >= n.digit
+                ) managers
+            ) extracted_managers
+            WHERE extracted_managers.manager_name = v_user_name
+        )
+        OR EXISTS (
+            SELECT 1
+            FROM (
+                SELECT TRIM(SUBSTRING_INDEX(employee, ' (', 1)) AS employee_name
+                FROM (
+                    SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(pd.employee_details, ', ', n.digit+1), ', ', -1) AS employee
+                    FROM (
+                        SELECT 0 digit UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION 
+                               SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9
+                    ) n
+                    WHERE LENGTH(pd.employee_details) - LENGTH(REPLACE(pd.employee_details, ',', '')) >= n.digit
+                ) employees
+            ) extracted_employees
+            WHERE extracted_employees.employee_name = v_user_name
+        );
+END $$
+
+DELIMITER ;
+
+
+-- Procedure to GET particular Project's Details
+DELIMITER $$
+
+CREATE PROCEDURE GETProjectDetails
+(
+    IN p_user_id INT,
+    IN p_project_id INT
+)
+BEGIN
+    DECLARE v_user_name VARCHAR(255);
+
+    -- Retrieve user_name for the given user_id
+    SELECT user_name INTO v_user_name
+    FROM Users
+    WHERE user_id = p_user_id;
+
+    -- Return JSON project object if user is authorized and project matches
+    SELECT JSON_OBJECT
+    (
+        'project_id', pd.project_id,
+        'project_name', pd.project_name,
+        'client_name', pd.client_name,
+        'project_department', pd.project_department,
+        'project_description', pd.project_description,
+        'project_status', pd.project_status,
+        'project_deadline', pd.project_deadline,
+        'assigned_date', pd.assigned_date,
+        'project_report', TO_BASE64(pd.project_report),
+        'project_technology', pd.project_technology,
+        'manager_details', pd.manager_details,
+        'employee_details', pd.employee_details
+    ) AS project_data
+    FROM Project_Details pd
+    WHERE pd.project_id = p_project_id
+      AND
+      (
+        EXISTS
+        (
+            SELECT 1
+            FROM
+            (
+                SELECT TRIM(SUBSTRING_INDEX(manager, ' (', 1)) AS manager_name
+                FROM
+                (
+                    SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(pd.manager_details, ', ', n.digit+1), ', ', -1) AS manager
+                    FROM
+                    (
+                        SELECT 0 digit UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION 
+                               SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9
+                    ) n
+                    WHERE LENGTH(pd.manager_details) - LENGTH(REPLACE(pd.manager_details, ',', '')) >= n.digit
+                ) managers
+            ) extracted_managers
+            WHERE extracted_managers.manager_name = v_user_name
+        )
+        OR EXISTS
+        (
+            SELECT 1
+            FROM
+            (
+                SELECT TRIM(SUBSTRING_INDEX(employee, ' (', 1)) AS employee_name
+                FROM
+                (
+                    SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(pd.employee_details, ', ', n.digit+1), ', ', -1) AS employee
+                    FROM
+                    (
+                        SELECT 0 digit UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION 
+                               SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9
+                    ) n
+                    WHERE LENGTH(pd.employee_details) - LENGTH(REPLACE(pd.employee_details, ',', '')) >= n.digit
+                ) employees
+            ) extracted_employees
+            WHERE extracted_employees.employee_name = v_user_name
+        )
+      );
+
+END $$
+
+DELIMITER ;
+
+
+-- Procedure to update any Project Details
+DELIMITER $$
+
+CREATE PROCEDURE UpdateProjectDetails
+(
+    IN p_input_json JSON
+)
+BEGIN
+    DECLARE p_project_id INT;
+    DECLARE p_user_id INT;
+    DECLARE p_project_name VARCHAR(255);
+    DECLARE p_client_name VARCHAR(255);
+    DECLARE p_project_department VARCHAR(255);
+    DECLARE p_project_description TEXT;
+    DECLARE p_project_deadline DATE;
+    DECLARE p_assigned_date DATE;
+    DECLARE p_project_report BLOB;
+    DECLARE p_project_technology TEXT;
+    DECLARE p_employee_names TEXT;
+    DECLARE p_employee_roles TEXT;
+    DECLARE p_manager_names TEXT;
+    DECLARE p_manager_roles TEXT;
+
+    DECLARE employee_name VARCHAR(255);
+    DECLARE employee_role VARCHAR(255);
+    DECLARE manager_name VARCHAR(255);
+    DECLARE manager_role VARCHAR(255);
+    DECLARE user_emp_id INT;
+    DECLARE user_mgr_id INT;
+    DECLARE done INT DEFAULT 0;
+
+    -- Extract values from JSON input
+    SET p_project_id         = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.project_id'));
+    SET p_user_id            = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.user_id'));
+    SET p_project_name       = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.project_name'));
+    SET p_client_name        = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.client_name'));
+    SET p_project_department = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.project_department'));
+    SET p_project_description= JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.project_description'));
+    SET p_project_deadline   = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.project_deadline'));
+    SET p_assigned_date      = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.assigned_date'));
+    SET p_project_technology = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.project_technology'));
+    SET p_project_report     = FROM_BASE64(JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.project_report')));
+    SET p_employee_names     = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.employee_names'));
+    SET p_employee_roles     = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.employee_roles'));
+    SET p_manager_names      = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.manager_names'));
+    SET p_manager_roles      = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.manager_roles'));
+
+    -- Update Projects table
+    UPDATE Projects
+    SET 
+        project_name = p_project_name,
+        client_name = p_client_name,
+        project_department = p_project_department,
+        project_description = p_project_description,
+        project_deadline = p_project_deadline,
+        assigned_date = p_assigned_date,
+        project_report = p_project_report,
+        project_technology = p_project_technology
+    WHERE project_id = p_project_id;
+
+    -- Handle Project Reports
+    IF EXISTS
+    (
+        SELECT 1 FROM Project_Reports
+        WHERE project_id = p_project_id AND user_id = p_user_id
+    ) THEN
+        UPDATE Project_Reports
+        SET project_report = p_project_report,
+            uploaded_at = CURRENT_TIMESTAMP
+        WHERE project_id = p_project_id
+          AND user_id = p_user_id
+          AND NOT p_project_report <=> project_report;
+    ELSE
+        INSERT INTO Project_Reports (project_id, user_id, project_report, uploaded_at)
+        VALUES (p_project_id, p_user_id, p_project_report, CURRENT_TIMESTAMP);
+    END IF;
+
+    -- Clear old manager and employee records
+    DELETE FROM Project_Managers WHERE project_id = p_project_id;
+    DELETE FROM Project_Employees WHERE project_id = p_project_id;
+
+    -- Process Managers
+    DECLARE mgr_cursor CURSOR FOR 
+        SELECT TRIM(value) FROM JSON_TABLE(CONCAT('["', REPLACE(p_manager_names, ',', '","'), '"]')
+            COLUMNS (value VARCHAR(255) PATH '$'));
+
+    DECLARE role_mgr_cursor CURSOR FOR 
+        SELECT TRIM(value) FROM JSON_TABLE(CONCAT('["', REPLACE(p_manager_roles, ',', '","'), '"]')
+            COLUMNS (value VARCHAR(255) PATH '$'));
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
+
+    SET done = 0;
+    OPEN mgr_cursor;
+    OPEN role_mgr_cursor;
+
+    read_mgr: LOOP
+        FETCH mgr_cursor INTO manager_name;
+        FETCH role_mgr_cursor INTO manager_role;
+        IF done THEN 
+            LEAVE read_mgr;
+        END IF;
+
+        SELECT user_id INTO user_mgr_id FROM Users WHERE user_name = manager_name AND user_type = 'manager' LIMIT 1;
+
+        IF user_mgr_id IS NOT NULL THEN
+            INSERT INTO Project_Managers (project_id, user_id, manager_role_assigned, manager_name, project_accepted)
+            VALUES (p_project_id, user_mgr_id, manager_role, manager_name, FALSE);
+        END IF;
+    END LOOP;
+
+    CLOSE mgr_cursor;
+    CLOSE role_mgr_cursor;
+
+    -- Process Employees
+    SET done = 0;
+
+    DECLARE emp_cursor CURSOR FOR 
+        SELECT TRIM(value) FROM JSON_TABLE(CONCAT('["', REPLACE(p_employee_names, ',', '","'), '"]')
+            COLUMNS (value VARCHAR(255) PATH '$'));
+
+    DECLARE role_emp_cursor CURSOR FOR 
+        SELECT TRIM(value) FROM JSON_TABLE(CONCAT('["', REPLACE(p_employee_roles, ',', '","'), '"]')
+            COLUMNS (value VARCHAR(255) PATH '$'));
+
+    OPEN emp_cursor;
+    OPEN role_emp_cursor;
+
+    read_emp: LOOP
+        FETCH emp_cursor INTO employee_name;
+        FETCH role_emp_cursor INTO employee_role;
+        IF done THEN 
+            LEAVE read_emp;
+        END IF;
+
+        SELECT user_id INTO user_emp_id FROM Users WHERE user_name = employee_name AND user_type = 'employee' LIMIT 1;
+
+        IF user_emp_id IS NOT NULL THEN
+            INSERT INTO Project_Employees (project_id, user_id, employee_role_assigned, employee_name, project_accepted)
+            VALUES (p_project_id, user_emp_id, employee_role, employee_name, FALSE);
+        END IF;
+    END LOOP;
+
+    CLOSE emp_cursor;
+    CLOSE role_emp_cursor;
+
+END $$
+
+DELIMITER ;
+
+
+-- Procedure to Delete any Project
+DELIMITER $$
+
+CREATE PROCEDURE DeleteProjectDetailsById
+(
+    IN p_project_id INT
+)
+BEGIN
+    DELETE FROM Project_Details
+    WHERE project_id = p_project_id;
+END $$
+
+DELIMITER ;
+
+
+-- Procedure for Profile View
+DELIMITER $$
+
+CREATE PROCEDURE ProfileView
+(
+    IN p_user_id INT
+)
+BEGIN
+    SELECT JSON_OBJECT
+    (
+        'user_id', user_id,
+        'user_type', user_type,
+        'user_name', user_name,
+        'date_of_birth', date_of_birth,
+        'user_image', TO_BASE64(user_image),
+        'mobile_number', mobile_number,
+        'email_id', email_id,
+        'user_designation', user_designation,
+        'signup_method', signup_method
+    ) AS profile_data
+    FROM Users
+    WHERE user_id = p_user_id;
+END $$
+
+DELIMITER ;
+
+
+--Procedure to Insert the Company Details
+DELIMITER $$
+
+CREATE PROCEDURE InsertCompanySettings
+(
+    IN p_user_id INT,
+    IN p_company_data JSON
+)
+BEGIN
+    DECLARE v_user_type VARCHAR(20);
+
+    -- Step 1: Check if the user is an administrator
+    SELECT user_type INTO v_user_type
+    FROM Users
+    WHERE user_id = p_user_id;
+
+    -- Step 2: Proceed only if the user is admin
+    IF v_user_type = 'administrator' THEN
+        INSERT INTO Company_Settings
+        (
+            company_name,
+            company_email,
+            app_Name,
+            company_Contact,
+            company_Address,
+            company_Website,
+            app_Logo,
+            app_Favicon
+        )
+        VALUES
+        (
+            JSON_UNQUOTE(JSON_EXTRACT(p_company_data, '$.company_name')),
+            JSON_UNQUOTE(JSON_EXTRACT(p_company_data, '$.company_email')),
+            JSON_UNQUOTE(JSON_EXTRACT(p_company_data, '$.app_Name')),
+            CAST(JSON_UNQUOTE(JSON_EXTRACT(p_company_data, '$.company_Contact')) AS UNSIGNED),
+            JSON_UNQUOTE(JSON_EXTRACT(p_company_data, '$.company_Address')),
+            JSON_UNQUOTE(JSON_EXTRACT(p_company_data, '$.company_Website')),
+            FROM_BASE64(JSON_UNQUOTE(JSON_EXTRACT(p_company_data, '$.app_Logo'))),
+            FROM_BASE64(JSON_UNQUOTE(JSON_EXTRACT(p_company_data, '$.app_Favicon')))
+        );
+
+        SELECT 'Company settings inserted successfully.' AS message;
+    ELSE
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'User is not authorized to insert company settings.';
+    END IF;
+END $$
+
+DELIMITER ;
+
+
+DELIMITER $$
+
+CREATE PROCEDURE GetCompanySettings
+(
+    IN p_company_id INT,
+    IN p_user_id INT
+)
+BEGIN
+    DECLARE company_exists INT DEFAULT 0;
+    DECLARE user_exists INT DEFAULT 0;
+
+    -- Check if company_id exists
+    SELECT COUNT(*) INTO company_exists
+    FROM Company_Settings
+    WHERE company_id = p_company_id;
+
+    -- Check if user_id exists
+    SELECT COUNT(*) INTO user_exists
+    FROM Users
+    WHERE user_id = p_user_id;
+
+    -- If both exist, return company settings as JSON
+    IF company_exists = 1 AND user_exists = 1 THEN
+        SELECT JSON_OBJECT
+        (
+            'company_name', company_name,
+            'company_email', company_email,
+            'app_Name', app_Name,
+            'company_Contact', company_Contact,
+            'company_Address', company_Address,
+            'company_Website', company_Website,
+            'app_Logo', TO_BASE64(app_Logo),
+            'app_Favicon', TO_BASE64(app_Favicon)
+        ) AS company_info
+        FROM Company_Settings
+        WHERE company_id = p_company_id;
+    ELSE
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Access Denied: Invalid user or company ID';
+    END IF;
+END $$
+
+DELIMITER ;
+
+
+--Procedure for User Profile Update
+DELIMITER $$
+
+CREATE PROCEDURE ProfileUpdate
+(
+    IN p_user_data JSON
+)
+BEGIN
+    DECLARE v_user_id INT;
+    DECLARE v_user_image BLOB;
+    DECLARE v_email_id VARCHAR(100);
+    DECLARE v_mobile_number VARCHAR(15);
+    DECLARE v_signup_method ENUM('google', 'facebook', 'linkedin', 'github', 'email', 'mobile');
+
+    -- Extract values from JSON
+    SET v_user_id = JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.user_id'));
+    SET v_user_image = FROM_BASE64(JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.user_image')));
+    SET v_email_id = JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.email_id'));
+    SET v_mobile_number = JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.mobile_number'));
+
+    -- Get the signup method for the user
+    SELECT signup_method INTO v_signup_method
+    FROM Users
+    WHERE user_id = v_user_id;
+
+    -- Conditionally update fields
+    UPDATE Users
+    SET
+        email_id = IF(v_signup_method != 'email', v_email_id, email_id),
+        mobile_number = IF(v_signup_method != 'mobile', v_mobile_number, mobile_number),
+        user_image = v_user_image
+    WHERE user_id = v_user_id;
+
+    -- Return a success message
+    SELECT JSON_OBJECT
+    (
+        'status', 'success',
+        'message', 'Profile updated successfully',
+        'user_id', v_user_id
+    ) AS result;
+END $$
+
+DELIMITER ;
+
+
+-- Procedure for Approval View of all Users
+DELIMITER $$
+
+CREATE PROCEDURE ApprovalView
+(
+    IN p_admin_user_id INT
+)
+BEGIN
+    DECLARE admin_check INT DEFAULT 0;
+
+    -- Step 1: Check if the requesting user is an administrator
+    SELECT COUNT(*) INTO admin_check
+    FROM Users
+    WHERE user_id = p_admin_user_id
+      AND user_type = 'administrator';
+
+    -- Step 2: If administrator, return all users with login_approval = false as JSON
+    IF admin_check = 1 THEN
+        SELECT JSON_ARRAYAGG
+        (
+            JSON_OBJECT
+            (
+                'user_id', user_id,
+                'user_type', user_type,
+                'user_name', user_name,
+                'date_of_birth', date_of_birth,
+                'user_designation', user_designation,
+                'signup_method', signup_method,
+                'mobile_number', mobile_number,
+                'email_id', email_id,
+                'user_image', TO_BASE64(user_image),
+                'active_on', active_on
+            )
+        ) AS pending_approvals
+        FROM Users
+        WHERE login_approval = FALSE;
+    ELSE
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Access Denied: Only administrators can view user profiles.';
+    END IF;
+END $$
+
+DELIMITER ;
+
+
+-- Procedure to approve particular New User
+DELIMITER $$
+CREATE PROCEDURE ApprovalView
+(
+    IN p_admin_user_id INT,    -- Logged-in admin user's ID
+    IN p_target_user_id INT    -- User whose profile we want to update
+)
+BEGIN
+    DECLARE admin_check INT DEFAULT 0;
+
+    -- Step 1: Check if the requesting user is an administrator
+    SELECT COUNT(*) INTO admin_check
+    FROM Users
+    WHERE user_id = p_admin_user_id
+      AND user_type = 'administrator';
+
+    -- Step 2: If administrator, update the profile and return JSON
+    IF admin_check = 1 THEN
+        UPDATE Users
+        SET login_approval = TRUE
+        WHERE user_id = p_target_user_id;
+
+        SELECT JSON_OBJECT
+        (
+            'status', 'success',
+            'message', CONCAT('User ID ', p_target_user_id, ' USER APPROVED')
+        ) AS result;
+    ELSE
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Access Denied: Only administrators can update user approval status.';
+    END IF;
+END $$
+
+DELIMITER ;
+
+
+-- Get or Display User details of any new user for edit
+DELIMITER $$
+
+CREATE PROCEDURE GetUserProfileByAdminWithSignupOptions
+(
+    IN p_admin_user_id INT,
+    IN p_target_user_id INT
+)
+BEGIN
+    DECLARE admin_check INT DEFAULT 0;
+    DECLARE enum_signup_methods TEXT;
+    DECLARE v_user_type ENUM('administrator', 'manager', 'employee');
+    DECLARE v_user_name VARCHAR(100);
+    DECLARE v_date_of_birth DATE;
+    DECLARE v_user_designation VARCHAR(100);
+    DECLARE v_signup_method ENUM('google', 'facebook', 'linkedin', 'github', 'email', 'mobile');
+    DECLARE v_mobile_number VARCHAR(15);
+    DECLARE v_email_id VARCHAR(100);
+    DECLARE v_user_image BLOB;
+    DECLARE v_active_on TIMESTAMP;
+
+    -- Step 1: Verify admin
+    SELECT COUNT(*) INTO admin_check
+    FROM Users
+    WHERE user_id = p_admin_user_id AND user_type = 'administrator';
+
+    IF admin_check = 1 THEN
+        -- Step 2: Fetch user profile
+        SELECT 
+            user_type, user_name, date_of_birth, user_designation, signup_method,
+            mobile_number, email_id, user_image, active_on
+        INTO 
+            v_user_type, v_user_name, v_date_of_birth, v_user_designation, v_signup_method,
+            v_mobile_number, v_email_id, v_user_image, v_active_on
+        FROM Users
+        WHERE user_id = p_target_user_id;
+
+        -- Step 3: Get ENUM options for signup_method
+        SELECT REPLACE(REPLACE(REPLACE(COLUMN_TYPE, 'enum(', ''), ')', ''), '''', '')
+        INTO enum_signup_methods
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_NAME = 'Users'
+          AND COLUMN_NAME = 'signup_method'
+          AND TABLE_SCHEMA = DATABASE();   --database name here
+
+        -- Step 4: Return profile + options in JSON format
+        SELECT JSON_OBJECT
+        (
+            'user_profile', JSON_OBJECT
+            (
+                'user_id', p_target_user_id,
+                'user_type', v_user_type,
+                'user_name', v_user_name,
+                'date_of_birth', v_date_of_birth,
+                'user_designation', v_user_designation,
+                'signup_method', v_signup_method,
+                'mobile_number', v_mobile_number,
+                'email_id', v_email_id,
+                'user_image', TO_BASE64(IFNULL(v_user_image, '')),
+                'active_on', v_active_on
+            ),
+            'signup_method_options', JSON_ARRAYAGG
+            (
+                TRIM(BOTH ' ' FROM 
+                    TRIM(BOTH '"' FROM 
+                        SUBSTRING_INDEX(SUBSTRING_INDEX(enum_signup_methods, ',', n), ',', -1)
+                    )
+                )
+            )
+        ) AS user_profile_data
+        FROM
+        (
+            SELECT 1 AS n UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5 
+            UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9 UNION SELECT 10
+        ) numbers
+        WHERE n <= LENGTH(enum_signup_methods) - LENGTH(REPLACE(enum_signup_methods, ',', '')) + 1;
+
+    ELSE
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Access Denied: Only administrators can view user profiles.';
+    END IF;
+END $$
+
+DELIMITER ;
+
+
+-- Procedure for Updating New User Details Before Approval
+DELIMITER $$
+
+CREATE PROCEDURE UpdateUserProfileByAdmin
+(
+    IN p_admin_user_id INT,             -- Logged-in user's ID (should be administrator)
+    IN p_user_profile_json JSON         -- JSON object with updated user profile fields
+)
+BEGIN
+    DECLARE admin_check INT DEFAULT 0;
+    DECLARE v_user_id INT;
+    DECLARE v_user_type ENUM('administrator', 'manager', 'employee');
+    DECLARE v_user_name VARCHAR(100);
+    DECLARE v_date_of_birth DATE;
+    DECLARE v_user_designation VARCHAR(100);
+    DECLARE v_signup_method ENUM('google', 'facebook', 'linkedin', 'github', 'email', 'mobile');
+    DECLARE v_mobile_number VARCHAR(15);
+    DECLARE v_email_id VARCHAR(100);
+    DECLARE v_user_image BLOB;
+    DECLARE v_active_on TIMESTAMP;
+
+    -- Step 1: Verify if p_admin_user_id is administrator
+    SELECT COUNT(*) INTO admin_check
+    FROM Users
+    WHERE user_id = p_admin_user_id AND user_type = 'administrator';
+
+    IF admin_check = 1 THEN
+        -- Step 2: Extract fields from JSON
+        SET v_user_id = JSON_UNQUOTE(JSON_EXTRACT(p_user_profile_json, '$.user_id'));
+        SET v_user_type = JSON_UNQUOTE(JSON_EXTRACT(p_user_profile_json, '$.user_type'));
+        SET v_user_name = JSON_UNQUOTE(JSON_EXTRACT(p_user_profile_json, '$.user_name'));
+        SET v_date_of_birth = JSON_UNQUOTE(JSON_EXTRACT(p_user_profile_json, '$.date_of_birth'));
+        SET v_user_designation = JSON_UNQUOTE(JSON_EXTRACT(p_user_profile_json, '$.user_designation'));
+        SET v_signup_method = JSON_UNQUOTE(JSON_EXTRACT(p_user_profile_json, '$.signup_method'));
+        SET v_mobile_number = JSON_UNQUOTE(JSON_EXTRACT(p_user_profile_json, '$.mobile_number'));
+        SET v_email_id = JSON_UNQUOTE(JSON_EXTRACT(p_user_profile_json, '$.email_id'));
+        SET v_user_image = FROM_BASE64(JSON_UNQUOTE(JSON_EXTRACT(p_user_profile_json, '$.user_image')));
+        SET v_active_on = JSON_UNQUOTE(JSON_EXTRACT(p_user_profile_json, '$.active_on'));
+
+        -- Step 3: Update user profile
+        UPDATE Users
+        SET 
+            user_type = v_user_type,
+            user_name = v_user_name,
+            date_of_birth = v_date_of_birth,
+            user_designation = v_user_designation,
+            signup_method = v_signup_method,
+            mobile_number = v_mobile_number,
+            email_id = v_email_id,
+            user_image = v_user_image,
+            active_on = v_active_on
+        WHERE user_id = v_user_id;
+    ELSE
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Access Denied: Only administrators can update user profiles.';
+    END IF;
+END $$
+
+DELIMITER ;
+
+
+-- Display the profile data of all approved employees
+DELIMITER $$
+
+CREATE PROCEDURE GetAllApprovedUsersByAdmin
+(
+    IN p_loggedin_user_id INT
+)
+BEGIN
+    DECLARE is_admin INT DEFAULT 0;
+
+    -- Check if logged-in user is an administrator
+    SELECT COUNT(*) INTO is_admin
+    FROM Users
+    WHERE user_id = p_loggedin_user_id AND user_type = 'administrator';
+
+    -- If admin, return all approved users as JSON
+    IF is_admin = 1 THEN
+        SELECT JSON_ARRAYAGG
+        (
+            JSON_OBJECT
+            (
+                'user_id', user_id,
+                'user_type', user_type,
+                'user_name', user_name,
+                'date_of_birth', date_of_birth,
+                'user_designation', user_designation,
+                'signup_method', signup_method,
+                'mobile_number', mobile_number,
+                'email_id', email_id,
+                'password_hash', password_hash,
+                'user_image', TO_BASE64(user_image),
+                'active_on', active_on
+            )
+        ) AS approved_users_json
+        FROM Users
+        WHERE login_approval = TRUE;
+    ELSE
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Access Denied: Only administrators can view all user profiles.';
+    END IF;
+END $$
+
+DELIMITER ;
+
+
+-- Get the profile data of particular approved employee
+DELIMITER $$
+
+CREATE PROCEDURE GetApprovedUserDetailsWithOptions
+(
+    IN p_loggedin_user_id INT,
+    IN p_target_user_id INT
+)
+BEGIN
+    DECLARE is_admin INT DEFAULT 0;
+
+    -- Check if logged-in user is an administrator
+    SELECT COUNT(*) INTO is_admin
+    FROM Users
+    WHERE user_id = p_loggedin_user_id AND user_type = 'administrator';
+
+    -- Proceed only if admin
+    IF is_admin = 1 THEN
+        DECLARE user_type_enum TEXT;
+        DECLARE signup_method_enum TEXT;
+
+        -- Extract ENUM options from INFORMATION_SCHEMA
+        SELECT COLUMN_TYPE INTO user_type_enum
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_NAME = 'Users' AND COLUMN_NAME = 'user_type' AND TABLE_SCHEMA = DATABASE();    --edit database name
+
+        SELECT COLUMN_TYPE INTO signup_method_enum
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_NAME = 'Users' AND COLUMN_NAME = 'signup_method' AND TABLE_SCHEMA = DATABASE();    --edit databse name
+
+        -- Format ENUM strings into JSON arrays
+        SET user_type_enum = REPLACE(REPLACE(SUBSTRING(user_type_enum, 6, LENGTH(user_type_enum) - 6), '''', ''), ',', '","');
+        SET signup_method_enum = REPLACE(REPLACE(SUBSTRING(signup_method_enum, 6, LENGTH(signup_method_enum) - 6), '''', ''), ',', '","');
+
+        -- Return full JSON object
+        SELECT JSON_OBJECT
+        (
+            'user_profile', JSON_OBJECT
+            (
+                'user_type', u.user_type,
+                'user_name', u.user_name,
+                'date_of_birth', u.date_of_birth,
+                'user_designation', u.user_designation,
+                'signup_method', u.signup_method,
+                'mobile_number', u.mobile_number,
+                'email_id', u.email_id,
+                'password_hash', u.password_hash,
+                'user_image', TO_BASE64(u.user_image),
+                'active_on', u.active_on,
+                'deactive_on', u.deactive_on
+            ),
+            'user_type_options', JSON_ARRAY(JSON_UNQUOTE(JSON_EXTRACT(CONCAT('["', user_type_enum, '"]'), '$'))),
+            'signup_method_options', JSON_ARRAY(JSON_UNQUOTE(JSON_EXTRACT(CONCAT('["', signup_method_enum, '"]'), '$')))
+        ) AS result_json
+        FROM Users u
+        WHERE u.user_id = p_target_user_id AND u.login_approval = TRUE;
+
+    ELSE
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Access Denied: Only administrators can view this user profile.';
+    END IF;
+END $$
+
+DELIMITER ;
+
+
+--Updating the User Profile of Current Employee
+DELIMITER $$
+
+CREATE PROCEDURE UpdateUserProfileWithOptions
+(
+    IN p_loggedin_user_id INT,           -- Admin ID
+    IN p_target_user_id INT,             -- ID of user to be updated
+    IN p_user_type ENUM('administrator', 'manager', 'employee'),
+    IN p_user_name VARCHAR(100),
+    IN p_date_of_birth DATE,
+    IN p_user_designation VARCHAR(100),
+    IN p_signup_method ENUM('google', 'facebook', 'linkedin', 'github', 'email', 'mobile'),
+    IN p_mobile_number VARCHAR(15),
+    IN p_email_id VARCHAR(100),
+    IN p_password_hash VARCHAR(255),
+    IN p_user_image BLOB,
+    IN p_active_on TIMESTAMP,
+    IN p_deactive_on TIMESTAMP
+)
+BEGIN
+    DECLARE is_admin INT DEFAULT 0;
+
+    -- Step 1: Check if the logged-in user is an administrator
+    SELECT COUNT(*) INTO is_admin
+    FROM Users
+    WHERE user_id = p_loggedin_user_id AND user_type = 'administrator';
+
+    -- Step 2: Proceed only if admin
+    IF is_admin = 1 THEN
+        UPDATE Users
+        SET 
+            user_type = p_user_type,
+            user_name = p_user_name,
+            date_of_birth = p_date_of_birth,
+            user_designation = p_user_designation,
+            signup_method = p_signup_method,
+            mobile_number = p_mobile_number,
+            email_id = p_email_id,
+            password_hash = p_password_hash,
+            user_image = p_user_image,
+            active_on = p_active_on,
+            deactive_on = p_deactive_on
+        WHERE user_id = p_target_user_id;
+    ELSE
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Access Denied: Only administrators can update user profiles.';
+    END IF;
+END $$
+
+DELIMITER ;
+
+
+-- Procedure for Creating new user
+DELIMITER $$
+
+CREATE PROCEDURE CreateEmployee
+(
+    IN p_loggedin_user_id INT,
+    IN p_user_data JSON
+)
+BEGIN
+    DECLARE is_admin INT DEFAULT 0;
+
+    -- Step 1: Verify admin access
+    SELECT COUNT(*) INTO is_admin
+    FROM Users
+    WHERE user_id = p_loggedin_user_id
+      AND user_type = 'administrator';
+
+    -- Step 2: If admin, insert new employee data
+    IF is_admin = 1 THEN
+        INSERT INTO Users
+        (
+            user_type,
+            user_name,
+            date_of_birth,
+            user_designation,
+            signup_method,
+            mobile_number,
+            email_id,
+            password_hash,
+            user_image,
+            active_on
+        )
+        VALUES (
+            JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.user_type')),
+            JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.user_name')),
+            JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.date_of_birth')),
+            JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.user_designation')),
+            JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.signup_method')),
+            JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.mobile_number')),
+            JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.email_id')),
+            JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.password_hash')),
+            FROM_BASE64(JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.user_image'))),
+            JSON_UNQUOTE(JSON_EXTRACT(p_user_data, '$.active_on'))
+        );
+    ELSE
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Access Denied: Only administrators can create new users.';
+    END IF;
+END $$
+
+DELIMITER ;
+
+
+-- Procedure to display blank form and return dropdown values for new user creation
+DELIMITER $$
+
+CREATE PROCEDURE GetDropdownValuesForNewUser
+(
+    IN p_loggedin_user_id INT
+)
+BEGIN
+    DECLARE is_admin INT DEFAULT 0;
+    DECLARE signup_methods_json JSON;
+    DECLARE designations_json JSON;
+    DECLARE user_types_json JSON;
+
+    -- Step 1: Verify admin access
+    SELECT COUNT(*) INTO is_admin
+    FROM Users
+    WHERE user_id = p_loggedin_user_id
+      AND user_type = 'administrator';
+
+    IF is_admin = 1 THEN
+        -- Get ENUM values for signup_method
+        SELECT JSON_ARRAYAGG(TRIM(BOTH '\'' FROM enum_val)) INTO signup_methods_json
+        FROM 
+        (
+            SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(column_type, ',', numbers.n), ',', -1) AS enum_val
+            FROM information_schema.columns
+            JOIN 
+            (
+                SELECT a.N + b.N * 10 + 1 AS n
+                FROM 
+                    (SELECT 0 AS N UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 
+                     UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 
+                     UNION SELECT 7 UNION SELECT 8 UNION SELECT 9) a,
+                    (SELECT 0 AS N UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 
+                     UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 
+                     UNION SELECT 7 UNION SELECT 8 UNION SELECT 9) b
+            ) numbers
+            WHERE table_schema = DATABASE()                 --database name
+              AND table_name = 'Users'
+              AND column_name = 'signup_method'
+              AND numbers.n <= LENGTH(column_type) - LENGTH(REPLACE(column_type, ',', '')) + 1
+        ) AS enum_vals;
+
+        -- Get ENUM values for user_type
+        SELECT JSON_ARRAYAGG(TRIM(BOTH '\'' FROM enum_val)) INTO user_types_json
+        FROM 
+        (
+            SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(column_type, ',', numbers.n), ',', -1) AS enum_val
+            FROM information_schema.columns
+            JOIN 
+            (
+                SELECT a.N + b.N * 10 + 1 AS n
+                FROM 
+                    (SELECT 0 AS N UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 
+                     UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 
+                     UNION SELECT 7 UNION SELECT 8 UNION SELECT 9) a,
+                    (SELECT 0 AS N UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 
+                     UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 
+                     UNION SELECT 7 UNION SELECT 8 UNION SELECT 9) b
+            ) numbers
+            WHERE table_schema = DATABASE()                 --database name
+              AND table_name = 'Users'
+              AND column_name = 'user_type'
+              AND numbers.n <= LENGTH(column_type) - LENGTH(REPLACE(column_type, ',', '')) + 1
+        ) AS enum_vals;
+
+        -- Get designations
+        SELECT JSON_ARRAYAGG(designation_name) INTO designations_json
+        FROM Designations;
+
+        -- Return all dropdown options
+        SELECT JSON_OBJECT
+        (
+            'user_type_options', user_types_json,
+            'signup_method_options', signup_methods_json,
+            'user_designation_options', designations_json
+        ) AS dropdowns;
+    ELSE
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Access Denied: Only administrators can retrieve dropdown options.';
+    END IF;
+END $$
+
+DELIMITER ;
+
+
+-- Procedure for Employee Details
+DELIMITER $$
+CREATE PROCEDURE EmployeeDetails
+(
+    IN p_user_id INT,
+    IN p_user_name VARCHAR(100),
+    IN p_email_id VARCHAR(100),
+    IN p_mobile_number VARCHAR(15),
+    IN p_date_of_birth DATE,
+    IN p_active_on DATE
+)
+BEGIN
+    UPDATE Users 
+    SET user_name = p_user_name, 
+        email_id = p_email_id, 
+        mobile_number = p_mobile_number, 
+        date_of_birth = p_date_of_birth,
+        active_on = p_active_on,
+        deactive_on = p_deactive_on
+    WHERE user_id = p_user_id;
+    
+    SELECT user_name, email_id, mobile_number, date_of_birth, active_on, deactive_on FROM Users WHERE user_type = 'employee';
+END $$
+DELIMITER ;
+
+
+-- Procedure for Manager Details
+DELIMITER $$
+
+CREATE PROCEDURE ManagerDetails
+(
+    IN p_user_id INT,
+    IN p_user_name VARCHAR(100),
+    IN p_email_id VARCHAR(100),
+    IN p_mobile_number VARCHAR(15),
+    IN p_date_of_birth DATE,
+    IN p_active_on DATE,
+    IN p_deactive_on DATE
+)
+BEGIN
+    UPDATE Users
+    SET user_name = p_user_name,
+        email_id = p_email_id,
+        mobile_number = p_mobile_number,
+        date_of_birth = p_date_of_birth,
+        active_on = p_active_on,
+        deactive_on = p_deactive_on
+    WHERE user_id = p_user_id;
+
+    SELECT user_name, email_id, mobile_number, date_of_birth, active_on, deactive_on FROM Users WHERE user_type = 'manager';
+END $$
+
+DELIMITER ;
+
+
+-- Procedure for Forgot Password
+DELIMITER $$
+
+CREATE PROCEDURE ForgotPassword
+(
+    IN p_input_json JSON,
+    OUT confirmation_message VARCHAR(255)
+)
+BEGIN
+    DECLARE v_email_or_mobile VARCHAR(100);
+    DECLARE v_login_method ENUM('google', 'facebook', 'linkedin', 'github', 'email', 'mobile');
+    DECLARE v_user_approval_status BOOLEAN;
+    DECLARE v_deactive_on TIMESTAMP;
+
+    -- Extract values from JSON input
+    SET v_email_or_mobile = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.email_or_mobile'));
+    SET v_login_method = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.login_method'));
+
+    -- Check user existence and retrieve necessary fields
+    SELECT login_approval, deactive_on INTO v_user_approval_status, v_deactive_on
+    FROM Users
+    WHERE email_id = v_email_or_mobile 
+       OR mobile_number = v_email_or_mobile 
+       OR google_id = v_email_or_mobile 
+       OR facebook_id = v_email_or_mobile 
+       OR linkedin_id = v_email_or_mobile 
+       OR github_id = v_email_or_mobile;
+
+    -- Determine confirmation message
+    IF v_user_approval_status IS NULL THEN
+        SET confirmation_message = 'Profile under approval';
+    ELSEIF v_user_approval_status = FALSE THEN
+        SET confirmation_message = 'User not found';
+    ELSEIF v_deactive_on IS NOT NULL THEN
+        SET confirmation_message = 'User profile is inactive now';
+    ELSEIF v_login_method IN ('google', 'facebook', 'linkedin', 'github') THEN
+        SET confirmation_message = 'OAuth-based login detected, please reset via provider';
+    ELSE
+        SET confirmation_message = 'true';
+    END IF;
+END $$
+
+DELIMITER ;
+
+
+-- Procedure for Update Password
+DELIMITER $$
+
+CREATE PROCEDURE UpdatePassword
+(
+    IN p_input_json JSON
+)
+BEGIN
+    DECLARE v_email_or_mobile VARCHAR(100);
+    DECLARE v_new_password VARCHAR(255);
+
+    -- Extract values from JSON input
+    SET v_email_or_mobile = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.email_or_mobile'));
+    SET v_new_password    = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.new_password'));
+
+    -- Update password
+    UPDATE Users 
+    SET password_hash = v_new_password
+    WHERE email_id = v_email_or_mobile OR mobile_number = v_email_or_mobile;
+
+    -- Return confirmation message
+    SELECT JSON_OBJECT('reset_message', 'Password was successfully changed') AS response;
+END $$
+
+DELIMITER ;

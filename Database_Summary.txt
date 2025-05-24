@@ -1,0 +1,35 @@
+Procedure for User Signup// dropdown options
+Procedure for Sign In
+Procedure for Updating Dashboard Counter
+Procedure for displaying Dashboard Counter
+Procedure for displaying all Departments
+Procedure for displaying all Technologies
+Procedure to get particular Department
+Procedure to delete any department
+Procedure to get particular Technology
+Procedure to delete any technology
+Procedure for updating Departments
+Procedure for updating Technologies
+Procedure to insert Project details// combine
+Procedure for concatenation of Project details with user roles// combine
+Procedure to display all Project Details
+Procedure to GET particular Project's Details//
+Procedure to update any Project Details
+Procedure to Delete any Project
+Procedure for Profile View//
+Procedure to Insert the Company Details
+Procedure to Get Company Settings
+Procedure for User Profile Update
+Procedure for Approval View of all Users
+Procedure to approve particular New User
+Get or Display User details of any new user for edit//
+Procedure for Updating New User Details Before Approval
+Display the profile data of all approved employees
+Get the profile data of particular approved employee//
+Updating the User Profile of Current Employee
+Procedure for Creating new user
+Procedure to return blank form and dropdown values for new user creation//
+Procedure for Employee Details
+Procedure for Manager Details
+Procedure for Forgot Password
+Procedure for Update Password
