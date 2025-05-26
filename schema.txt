@@ -24,6 +24,15 @@ CREATE TABLE Users
     deactive_on TIMESTAMP DEFAULT null
 );
 
+
+-- Designation Table
+CREATE TABLE Designation 
+(
+    designation_id INT AUTO_INCREMENT PRIMARY KEY,
+    designation_name VARCHAR(255) UNIQUE
+);
+
+
 -- Projects Table
 CREATE TABLE Projects 
 (
@@ -919,8 +928,52 @@ BEGIN
         'assigned_date', pd.assigned_date,
         'project_report', TO_BASE64(pd.project_report),
         'project_technology', pd.project_technology,
-        'manager_details', pd.manager_details,
-        'employee_details', pd.employee_details
+        'project_personnel',
+        JSON_ARRAY_APPEND(
+            -- Start with managers
+            (
+                SELECT IFNULL(JSON_ARRAYAGG(
+                    JSON_OBJECT(
+                        'name', TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(manager, ' (', 1), ',', -1)),
+                        'role', TRIM(REPLACE(REPLACE(SUBSTRING_INDEX(manager, '(', -1), ')', ''), ',', '')),
+                        'type', 'manager'
+                    )
+                ), JSON_ARRAY()) -- Return empty array if no managers
+                FROM
+                (
+                    SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(pd.manager_details, ',', n.digit + 1), ',', -1) AS manager
+                    FROM
+                    (
+                        SELECT 0 AS digit UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL
+                        SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9
+                    ) n
+                    WHERE CHAR_LENGTH(pd.manager_details) - CHAR_LENGTH(REPLACE(pd.manager_details, ',', '')) >= n.digit
+                ) AS managers_split
+                WHERE manager IS NOT NULL AND TRIM(manager) != ''
+            ),
+            -- Append employees
+            '$',
+            (
+                SELECT IFNULL(JSON_ARRAYAGG(
+                    JSON_OBJECT(
+                        'name', TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(employee, ' (', 1), ',', -1)),
+                        'role', TRIM(REPLACE(REPLACE(SUBSTRING_INDEX(employee, '(', -1), ')', ''), ',', '')),
+                        'type', 'employee'
+                    )
+                ), JSON_ARRAY()) -- Return empty array if no employees
+                FROM
+                (
+                    SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(pd.employee_details, ',', n.digit + 1), ',', -1) AS employee
+                    FROM
+                    (
+                        SELECT 0 AS digit UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL
+                        SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9
+                    ) n
+                    WHERE CHAR_LENGTH(pd.employee_details) - CHAR_LENGTH(REPLACE(pd.employee_details, ',', '')) >= n.digit
+                ) AS employees_split
+                WHERE employee IS NOT NULL AND TRIM(employee) != ''
+            )
+        )
     ) AS project_data
     FROM Project_Details pd
     WHERE pd.project_id = p_project_id
@@ -937,7 +990,7 @@ BEGIN
                     SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(pd.manager_details, ', ', n.digit+1), ', ', -1) AS manager
                     FROM
                     (
-                        SELECT 0 digit UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION 
+                        SELECT 0 digit UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION
                                SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9
                     ) n
                     WHERE LENGTH(pd.manager_details) - LENGTH(REPLACE(pd.manager_details, ',', '')) >= n.digit
@@ -956,7 +1009,7 @@ BEGIN
                     SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(pd.employee_details, ', ', n.digit+1), ', ', -1) AS employee
                     FROM
                     (
-                        SELECT 0 digit UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION 
+                        SELECT 0 digit UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION
                                SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9
                     ) n
                     WHERE LENGTH(pd.employee_details) - LENGTH(REPLACE(pd.employee_details, ',', '')) >= n.digit
@@ -965,6 +1018,10 @@ BEGIN
             WHERE extracted_employees.employee_name = v_user_name
         )
       );
+
+    -- Second result set: List of all users for dropdowns
+    SELECT user_id, user_name
+    FROM Users;
 
 END $$
 
@@ -1147,18 +1204,28 @@ CREATE PROCEDURE ProfileView
 BEGIN
     SELECT JSON_OBJECT
     (
-        'user_id', user_id,
-        'user_type', user_type,
-        'user_name', user_name,
-        'date_of_birth', date_of_birth,
-        'user_image', TO_BASE64(user_image),
-        'mobile_number', mobile_number,
-        'email_id', email_id,
-        'user_designation', user_designation,
-        'signup_method', signup_method
+        'user_id', u.user_id,
+        'user_type', u.user_type,
+        'user_name', u.user_name,
+        'date_of_birth', u.date_of_birth,
+        'user_image', TO_BASE64(u.user_image),
+        'mobile_number', u.mobile_number,
+        'email_id', u.email_id,
+        'signup_method', u.signup_method,
+        'designation_info', -- This is the single field containing both designation data
+        JSON_OBJECT
+        (
+            'current_designation', u.user_designation, -- The user's assigned designation (to be displayed normally)
+            'dropdown_options',                         -- The list for the dropdown
+            (
+                SELECT JSON_ARRAYAGG(d.designation_name)
+                FROM Designation d
+            )
+        )
     ) AS profile_data
-    FROM Users
-    WHERE user_id = p_user_id;
+    FROM Users u
+    WHERE u.user_id = p_user_id;
+
 END $$
 
 DELIMITER ;
@@ -1440,7 +1507,15 @@ BEGIN
                 'user_type', v_user_type,
                 'user_name', v_user_name,
                 'date_of_birth', v_date_of_birth,
-                'user_designation', v_user_designation,
+                'designation_info', -- This is the single field containing both designation data
+                JSON_OBJECT
+                (
+                    'dropdown_options',                         -- The list for the dropdown
+                    (
+                        SELECT JSON_ARRAYAGG(d.designation_name)
+                        FROM Designation d
+                    )
+                ),
                 'signup_method', v_signup_method,
                 'mobile_number', v_mobile_number,
                 'email_id', v_email_id,
@@ -1620,7 +1695,16 @@ BEGIN
                 'user_type', u.user_type,
                 'user_name', u.user_name,
                 'date_of_birth', u.date_of_birth,
-                'user_designation', u.user_designation,
+                'designation_info', -- This is the single field containing both designation data
+                    JSON_OBJECT
+                    (
+                        'current_designation', u.user_designation, -- The user's assigned designation (to be displayed normally)
+                        'dropdown_options',                         -- The list for the dropdown
+                        (
+                            SELECT JSON_ARRAYAGG(d.designation_name)
+                            FROM Designation d
+                        )
+                    ),
                 'signup_method', u.signup_method,
                 'mobile_number', u.mobile_number,
                 'email_id', u.email_id,
@@ -1749,7 +1833,7 @@ END $$
 DELIMITER ;
 
 
--- Procedure to display blank form and return dropdown values for new user creation
+-- Procedure to return blank form and return dropdown values for new user creation
 DELIMITER $$
 
 CREATE PROCEDURE GetDropdownValuesForNewUser
