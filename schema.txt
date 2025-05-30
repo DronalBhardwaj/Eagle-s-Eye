@@ -87,7 +87,7 @@ CREATE TABLE Departments
 -- Project Reports Table
 CREATE TABLE Project_Reports 
 (
-    report_id AUTO_INCREMENT INT PRIMARY KEY,
+    report_id INT AUTO_INCREMENT PRIMARY KEY,
     project_id INT NOT NULL,
     user_id INT NOT NULL,
     project_report BLOB,
@@ -96,35 +96,38 @@ CREATE TABLE Project_Reports
     FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
 );
 
--- Project Employees Table (Many-to-Many for Employees)
-CREATE TABLE Project_Employees 
-(
-    project_employee_id INT AUTO_INCREMENT PRIMARY KEY,
-    project_id INT NOT NULL,
-    user_id INT NOT NULL,  -- Refers to the Users table (where user_type = 'employee')
-    employee_role_assigned VARCHAR(255),
-    employee_name VARCHAR(255),
-    manager_name INT DEFAULT NULL, -- References user_id of a manager
-    manager_role_assigned INT DEFAULT NULL,
-    project_accepted BOOLEAN DEFAULT FALSE,
-    FOREIGN KEY (project_id) REFERENCES Projects(project_id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
-    FOREIGN KEY (manager_name) REFERENCES Project_Managers(manager_name) ON SET NULL,
-    FOREIGN KEY (manager_role_assigned) REFERENCES Project_Managers(manager_role_assigned) ON SET NULL
-);
 
 -- Project Managers Table (Many-to-Many for Managers)
 CREATE TABLE Project_Managers 
 (
     project_manager_id INT AUTO_INCREMENT PRIMARY KEY,
     project_id INT NOT NULL,
-    user_id INT NOT NULL,  -- Refers to the Users table (where user_type = 'manager')
-    manager_role_assigned VARCHAR(255),
+    manager_id INT,  -- Refers to the Users table (where user_type = 'manager')
     manager_name VARCHAR(255),
+    manager_role_assigned VARCHAR(255),
     project_accepted BOOLEAN DEFAULT FALSE,
     FOREIGN KEY (project_id) REFERENCES Projects(project_id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE SET NULL
+    FOREIGN KEY (manager_id) REFERENCES Users(user_id) ON DELETE CASCADE
 );
+
+
+-- Project Employees Table (Many-to-Many for Employees)
+CREATE TABLE Project_Employees 
+(
+    project_employee_id INT AUTO_INCREMENT PRIMARY KEY,
+    project_id INT NOT NULL,
+    employee_id INT,  -- Refers to the Users table (where user_type = 'employee')
+    employee_role_assigned VARCHAR(255),
+    employee_name VARCHAR(255),
+    manager_id INT,
+    manager_name INT DEFAULT NULL, -- References user_id of a manager
+    manager_role_assigned INT DEFAULT NULL,
+    project_accepted BOOLEAN DEFAULT FALSE,
+    FOREIGN KEY (project_id) REFERENCES Projects(project_id) ON DELETE CASCADE,
+    FOREIGN KEY (employee_id) REFERENCES Users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (manager_id) REFERENCES Project_Managers(manager_id) ON DELETE SET NULL
+);
+
 
 -- Company Settings Table
 CREATE TABLE Company_Settings 
@@ -143,7 +146,8 @@ CREATE TABLE Company_Settings
 -- Dashboard Counter Table
 CREATE TABLE Dashboard_Counter 
 (
-    user_id INT PRIMARY KEY,
+    counter_id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT,
     project_id INT,
     projects_To_Do INT,
     projects_Completed INT,
@@ -155,8 +159,8 @@ CREATE TABLE Dashboard_Counter
 
 
 -- Insert default administrator user
-INSERT INTO Users (user_type, user_name, date_of_birth, signup_method, mobile_number, email_id, password_hash, login_approval, active_on) 
-VALUES ('administrator', 'Dronal Bhardwaj', '1997-05-31', email, '8449655466', 'dronalbhardwaj3197@gmail.com', 'qwerty1234', TRUE, 2025-05-31);
+INSERT INTO Users (user_type, user_name, date_of_birth, signup_method, mobile_number, email_id, password_hash, login_approval, active_on)
+VALUES ('administrator', 'Dronal Bhardwaj', '1997-05-31', 'email', '8449655466', 'dronalbhardwaj3197@gmail.com', 'qwerty1234', TRUE, '2025-05-31 00:00:00');
 
 
 -- Procedure for User Signup
@@ -394,7 +398,7 @@ BEGIN
     FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_NAME = 'Departments'
       AND COLUMN_NAME = 'department_status'
-      AND TABLE_SCHEMA = DATABASE();
+      AND TABLE_SCHEMA = 'erms'
 
     -- Fetch ENUM list for department
     SELECT 
@@ -403,7 +407,7 @@ BEGIN
     FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_NAME = 'Departments'
       AND COLUMN_NAME = 'department'
-      AND TABLE_SCHEMA = DATABASE();
+      AND TABLE_SCHEMA = 'erms'
 
     -- Current Department data
     SELECT JSON_OBJECT
@@ -511,7 +515,7 @@ BEGIN
     FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_NAME = 'Technologies'
       AND COLUMN_NAME = 'technology_status'
-      AND TABLE_SCHEMA = 'your_database_name';  -- << Change this
+      AND TABLE_SCHEMA = 'erms';  -- database name
 
     -- Fetch ENUM list for technology (if it’s an ENUM, otherwise skip this part if not ENUM)
     SELECT 
@@ -520,7 +524,7 @@ BEGIN
     FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_NAME = 'Technologies'
       AND COLUMN_NAME = 'technology'
-      AND TABLE_SCHEMA = 'your_database_name';  -- << Change this
+      AND TABLE_SCHEMA = 'erms';  -- database name
 
     -- Final JSON Response
     SELECT JSON_OBJECT
@@ -731,7 +735,7 @@ BEGIN
         LIMIT 1;
 
         IF user_mgr_id IS NOT NULL THEN
-            INSERT INTO Project_Managers (project_id, user_id, manager_role_assigned, manager_name, project_accepted)
+            INSERT INTO Project_Managers (project_id, manager_id, manager_role_assigned, manager_name, project_accepted)
             VALUES (v_project_id, user_mgr_id, manager_role, manager_name, FALSE);
         END IF;
     END LOOP;
@@ -767,7 +771,7 @@ BEGIN
         LIMIT 1;
 
         IF user_emp_id IS NOT NULL THEN
-            INSERT INTO Project_Employees (project_id, user_id, employee_role_assigned, employee_name, project_accepted)
+            INSERT INTO Project_Employees (project_id, employee_id, employee_role_assigned, employee_name, project_accepted)
             VALUES (v_project_id, user_emp_id, employee_role, employee_name, FALSE);
         END IF;
     END LOOP;
@@ -1496,7 +1500,7 @@ BEGIN
         FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_NAME = 'Users'
           AND COLUMN_NAME = 'signup_method'
-          AND TABLE_SCHEMA = DATABASE();   --database name here
+          AND TABLE_SCHEMA = 'erms'   --database name here
 
         -- Step 4: Return profile + options in JSON format
         SELECT JSON_OBJECT
@@ -1677,11 +1681,11 @@ BEGIN
         -- Extract ENUM options from INFORMATION_SCHEMA
         SELECT COLUMN_TYPE INTO user_type_enum
         FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_NAME = 'Users' AND COLUMN_NAME = 'user_type' AND TABLE_SCHEMA = DATABASE();    --edit database name
+        WHERE TABLE_NAME = 'Users' AND COLUMN_NAME = 'user_type' AND TABLE_SCHEMA = 'erms'    --database name
 
         SELECT COLUMN_TYPE INTO signup_method_enum
         FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_NAME = 'Users' AND COLUMN_NAME = 'signup_method' AND TABLE_SCHEMA = DATABASE();    --edit databse name
+        WHERE TABLE_NAME = 'Users' AND COLUMN_NAME = 'signup_method' AND TABLE_SCHEMA = 'erms'    --databse name
 
         -- Format ENUM strings into JSON arrays
         SET user_type_enum = REPLACE(REPLACE(SUBSTRING(user_type_enum, 6, LENGTH(user_type_enum) - 6), '''', ''), ',', '","');
@@ -1870,7 +1874,7 @@ BEGIN
                      UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 
                      UNION SELECT 7 UNION SELECT 8 UNION SELECT 9) b
             ) numbers
-            WHERE table_schema = DATABASE()                 --database name
+            WHERE table_schema = 'erms'                 --database name
               AND table_name = 'Users'
               AND column_name = 'signup_method'
               AND numbers.n <= LENGTH(column_type) - LENGTH(REPLACE(column_type, ',', '')) + 1
@@ -1893,7 +1897,7 @@ BEGIN
                      UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 
                      UNION SELECT 7 UNION SELECT 8 UNION SELECT 9) b
             ) numbers
-            WHERE table_schema = DATABASE()                 --database name
+            WHERE table_schema = 'erms'                 --database name
               AND table_name = 'Users'
               AND column_name = 'user_type'
               AND numbers.n <= LENGTH(column_type) - LENGTH(REPLACE(column_type, ',', '')) + 1
