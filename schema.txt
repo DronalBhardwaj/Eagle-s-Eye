@@ -385,29 +385,29 @@ CREATE PROCEDURE GetDepartmentWithOptions
     IN p_dept_id INT
 )
 BEGIN
-    DECLARE enum_status_list TEXT;
-    DECLARE enum_department_list TEXT;
+    DECLARE enum_status_list_str TEXT;
+    DECLARE enum_department_list_str TEXT;
     DECLARE department_json JSON;
     DECLARE department_status_options JSON;
     DECLARE department_options JSON;
 
     -- Fetch ENUM list for department_status
     SELECT 
-        REPLACE(REPLACE(REPLACE(COLUMN_TYPE, 'enum(', ''), ')', ''), '''', '') 
-    INTO enum_status_list
+        SUBSTRING(COLUMN_TYPE, 6, LENGTH(COLUMN_TYPE) - 6) -- Extracts 'Value1','Value2'
+    INTO enum_status_list_str
     FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_NAME = 'Departments'
       AND COLUMN_NAME = 'department_status'
-      AND TABLE_SCHEMA = 'erms'
+      AND TABLE_SCHEMA = 'erms'; -- Ensure 'erms' is your actual database name
 
     -- Fetch ENUM list for department
     SELECT 
-        REPLACE(REPLACE(REPLACE(COLUMN_TYPE, 'enum(', ''), ')', ''), '''', '') 
-    INTO enum_department_list
+        SUBSTRING(COLUMN_TYPE, 6, LENGTH(COLUMN_TYPE) - 6) -- Extracts 'Value1','Value2'
+    INTO enum_department_list_str
     FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_NAME = 'Departments'
       AND COLUMN_NAME = 'department'
-      AND TABLE_SCHEMA = 'erms'
+      AND TABLE_SCHEMA = 'erms'; -- Ensure 'erms' is your actual database name
 
     -- Current Department data
     SELECT JSON_OBJECT
@@ -420,24 +420,26 @@ BEGIN
     WHERE dept_id = p_dept_id;
 
     -- Options for department_status ENUM
-    SELECT JSON_ARRAYAGG(TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(enum_status_list, ',', numbers.n), ',', -1)))
+    -- This uses a numbers table to split the comma-separated string into rows,
+    -- then aggregates them into a JSON array.
+    SELECT JSON_ARRAYAGG(TRIM(REPLACE(SUBSTRING_INDEX(SUBSTRING_INDEX(enum_status_list_str, ',', numbers.n), ',', -1), '''', '')))
     INTO department_status_options
     FROM
     (
-        SELECT 1 n UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5 
+        SELECT 1 n UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5
         UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9 UNION SELECT 10
     ) numbers
-    WHERE n <= (LENGTH(enum_status_list) - LENGTH(REPLACE(enum_status_list, ',', '')) + 1);
+    WHERE numbers.n <= (LENGTH(enum_status_list_str) - LENGTH(REPLACE(enum_status_list_str, ',', '')) + 1);
 
     -- Options for department ENUM
-    SELECT JSON_ARRAYAGG(TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(enum_department_list, ',', numbers.n), ',', -1)))
+    SELECT JSON_ARRAYAGG(TRIM(REPLACE(SUBSTRING_INDEX(SUBSTRING_INDEX(enum_department_list_str, ',', numbers.n), ',', -1), '''', '')))
     INTO department_options
     FROM
     (
-        SELECT 1 n UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5 
+        SELECT 1 n UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5
         UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9 UNION SELECT 10
     ) numbers
-    WHERE n <= (LENGTH(enum_department_list) - LENGTH(REPLACE(enum_department_list, ',', '')) + 1);
+    WHERE numbers.n <= (LENGTH(enum_department_list_str) - LENGTH(REPLACE(enum_department_list_str, ',', '')) + 1);
 
     -- Final JSON Output
     SELECT JSON_OBJECT
@@ -448,6 +450,7 @@ BEGIN
     ) AS department_details;
 
 END $$
+
 DELIMITER ;
 
 
@@ -647,6 +650,12 @@ CREATE PROCEDURE InsertProjectDetails
     IN p_input JSON
 )
 BEGIN
+    -- ******************************************************
+    -- ALL DECLARE STATEMENTS (VARIABLES, CURSORS, HANDLERS)
+    -- MUST COME FIRST IN THE BEGIN...END BLOCK
+    -- ******************************************************
+
+    -- Variable Declarations
     DECLARE v_project_id INT;
     DECLARE v_user_id INT;
     DECLARE v_project_name VARCHAR(255);
@@ -668,7 +677,35 @@ BEGIN
     DECLARE manager_role VARCHAR(255);
     DECLARE user_emp_id INT;
     DECLARE user_mgr_id INT;
-    DECLARE done INT DEFAULT 0;
+    DECLARE done INT DEFAULT 0; -- This initial declaration is fine
+
+    -- Cursor Declarations
+    DECLARE mgr_cursor CURSOR FOR
+        SELECT TRIM(value)
+        FROM JSON_TABLE(CONCAT('["', REPLACE(v_manager_names, ',', '","'), '"]')
+            COLUMNS (value VARCHAR(255) PATH '$'));
+
+    DECLARE role_mgr_cursor CURSOR FOR
+        SELECT TRIM(value)
+        FROM JSON_TABLE(CONCAT('["', REPLACE(v_manager_roles, ',', '","'), '"]')
+            COLUMNS (value VARCHAR(255) PATH '$'));
+
+    DECLARE emp_cursor CURSOR FOR
+        SELECT TRIM(value)
+        FROM JSON_TABLE(CONCAT('["', REPLACE(v_employee_names, ',', '","'), '"]')
+            COLUMNS (value VARCHAR(255) PATH '$'));
+
+    DECLARE role_emp_cursor CURSOR FOR
+        SELECT TRIM(value)
+        FROM JSON_TABLE(CONCAT('["', REPLACE(v_employee_roles, ',', '","'), '"]')
+            COLUMNS (value VARCHAR(255) PATH '$'));
+
+    -- Handler Declaration
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
+
+    -- ******************************************************
+    -- EXECUTABLE STATEMENTS BEGIN HERE
+    -- ******************************************************
 
     -- Extract fields from JSON input
     SET v_user_id = JSON_UNQUOTE(JSON_EXTRACT(p_input, '$.user_id'));
@@ -686,14 +723,14 @@ BEGIN
     SET v_manager_roles = JSON_UNQUOTE(JSON_EXTRACT(p_input, '$.manager_roles'));
 
     -- Insert into Projects
-    INSERT INTO Projects 
+    INSERT INTO Projects
     (
-        project_name, client_name, project_department, project_description, 
+        project_name, client_name, project_department, project_description,
         project_status, project_deadline, assigned_date, project_report, project_technology
     )
-    VALUES 
+    VALUES
     (
-        v_project_name, v_client_name, v_project_department, v_project_description, 
+        v_project_name, v_client_name, v_project_department, v_project_description,
         'Hold', v_project_deadline, v_assigned_date, v_project_report, v_project_technology
     );
 
@@ -706,22 +743,10 @@ BEGIN
     END IF;
 
     -- Process Managers
-    DECLARE mgr_cursor CURSOR FOR 
-        SELECT TRIM(value) 
-        FROM JSON_TABLE(CONCAT('["', REPLACE(v_manager_names, ',', '","'), '"]')
-            COLUMNS (value VARCHAR(255) PATH '$'));
-
-    DECLARE role_mgr_cursor CURSOR FOR 
-        SELECT TRIM(value) 
-        FROM JSON_TABLE(CONCAT('["', REPLACE(v_manager_roles, ',', '","'), '"]')
-            COLUMNS (value VARCHAR(255) PATH '$'));
-
-    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
-
     OPEN mgr_cursor;
     OPEN role_mgr_cursor;
 
-    SET done = 0;
+    SET done = 0; -- Reset done flag for this loop
     read_mgr: LOOP
         FETCH mgr_cursor INTO manager_name;
         FETCH role_mgr_cursor INTO manager_role;
@@ -729,12 +754,13 @@ BEGIN
             LEAVE read_mgr;
         END IF;
 
-        SELECT user_id INTO user_mgr_id 
-        FROM Users 
-        WHERE user_name = manager_name AND user_type = 'manager' 
+        SELECT user_id INTO user_mgr_id
+        FROM Users
+        WHERE user_name = manager_name AND user_type = 'manager'
         LIMIT 1;
 
         IF user_mgr_id IS NOT NULL THEN
+            -- Assuming 'manager_id' in Project_Managers links to 'user_id' in Users
             INSERT INTO Project_Managers (project_id, manager_id, manager_role_assigned, manager_name, project_accepted)
             VALUES (v_project_id, user_mgr_id, manager_role, manager_name, FALSE);
         END IF;
@@ -744,16 +770,7 @@ BEGIN
     CLOSE role_mgr_cursor;
 
     -- Process Employees
-    SET done = 0;
-    DECLARE emp_cursor CURSOR FOR 
-        SELECT TRIM(value) 
-        FROM JSON_TABLE(CONCAT('["', REPLACE(v_employee_names, ',', '","'), '"]')
-            COLUMNS (value VARCHAR(255) PATH '$'));
-
-    DECLARE role_emp_cursor CURSOR FOR 
-        SELECT TRIM(value) 
-        FROM JSON_TABLE(CONCAT('["', REPLACE(v_employee_roles, ',', '","'), '"]')
-            COLUMNS (value VARCHAR(255) PATH '$'));
+    SET done = 0; -- Reset done flag for this loop
 
     OPEN emp_cursor;
     OPEN role_emp_cursor;
@@ -765,12 +782,13 @@ BEGIN
             LEAVE read_emp;
         END IF;
 
-        SELECT user_id INTO user_emp_id 
-        FROM Users 
-        WHERE user_name = employee_name AND user_type = 'employee' 
+        SELECT user_id INTO user_emp_id
+        FROM Users
+        WHERE user_name = employee_name AND user_type = 'employee'
         LIMIT 1;
 
         IF user_emp_id IS NOT NULL THEN
+            -- Assuming 'employee_id' in Project_Employees links to 'user_id' in Users
             INSERT INTO Project_Employees (project_id, employee_id, employee_role_assigned, employee_name, project_accepted)
             VALUES (v_project_id, user_emp_id, employee_role, employee_name, FALSE);
         END IF;
