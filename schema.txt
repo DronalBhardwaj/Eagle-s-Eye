@@ -398,8 +398,7 @@ BEGIN
     FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_NAME = 'Departments'
       AND COLUMN_NAME = 'department_status'
-      AND TABLE_SCHEMA = 'erms'; -- Ensure 'erms' is your actual database name
-
+      AND TABLE_SCHEMA = 'erms';
     -- Fetch ENUM list for department
     SELECT 
         SUBSTRING(COLUMN_TYPE, 6, LENGTH(COLUMN_TYPE) - 6) -- Extracts 'Value1','Value2'
@@ -407,7 +406,7 @@ BEGIN
     FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_NAME = 'Departments'
       AND COLUMN_NAME = 'department'
-      AND TABLE_SCHEMA = 'erms'; -- Ensure 'erms' is your actual database name
+      AND TABLE_SCHEMA = 'erms';
 
     -- Current Department data
     SELECT JSON_OBJECT
@@ -518,7 +517,7 @@ BEGIN
     FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_NAME = 'Technologies'
       AND COLUMN_NAME = 'technology_status'
-      AND TABLE_SCHEMA = 'erms';  -- database name
+      AND TABLE_SCHEMA = 'erms';
 
     -- Fetch ENUM list for technology (if it’s an ENUM, otherwise skip this part if not ENUM)
     SELECT 
@@ -527,7 +526,7 @@ BEGIN
     FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_NAME = 'Technologies'
       AND COLUMN_NAME = 'technology'
-      AND TABLE_SCHEMA = 'erms';  -- database name
+      AND TABLE_SCHEMA = 'erms';
 
     -- Final JSON Response
     SELECT JSON_OBJECT
@@ -1441,7 +1440,7 @@ DELIMITER ;
 
 -- Procedure to approve particular New User
 DELIMITER $$
-CREATE PROCEDURE ApprovalView
+CREATE PROCEDURE ApprovalUser
 (
     IN p_admin_user_id INT,    -- Logged-in admin user's ID
     IN p_target_user_id INT    -- User whose profile we want to update
@@ -1518,7 +1517,7 @@ BEGIN
         FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_NAME = 'Users'
           AND COLUMN_NAME = 'signup_method'
-          AND TABLE_SCHEMA = 'erms'   --database name here
+          AND TABLE_SCHEMA = 'erms';
 
         -- Step 4: Return profile + options in JSON format
         SELECT JSON_OBJECT
@@ -1685,6 +1684,8 @@ CREATE PROCEDURE GetApprovedUserDetailsWithOptions
 )
 BEGIN
     DECLARE is_admin INT DEFAULT 0;
+    DECLARE user_type_enum TEXT;
+    DECLARE signup_method_enum TEXT;
 
     -- Check if logged-in user is an administrator
     SELECT COUNT(*) INTO is_admin
@@ -1693,17 +1694,16 @@ BEGIN
 
     -- Proceed only if admin
     IF is_admin = 1 THEN
-        DECLARE user_type_enum TEXT;
-        DECLARE signup_method_enum TEXT;
+
 
         -- Extract ENUM options from INFORMATION_SCHEMA
         SELECT COLUMN_TYPE INTO user_type_enum
         FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_NAME = 'Users' AND COLUMN_NAME = 'user_type' AND TABLE_SCHEMA = 'erms'    --database name
+        WHERE TABLE_NAME = 'Users' AND COLUMN_NAME = 'user_type' AND TABLE_SCHEMA = 'erms';
 
         SELECT COLUMN_TYPE INTO signup_method_enum
         FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_NAME = 'Users' AND COLUMN_NAME = 'signup_method' AND TABLE_SCHEMA = 'erms'    --databse name
+        WHERE TABLE_NAME = 'Users' AND COLUMN_NAME = 'signup_method' AND TABLE_SCHEMA = 'erms';
 
         -- Format ENUM strings into JSON arrays
         SET user_type_enum = REPLACE(REPLACE(SUBSTRING(user_type_enum, 6, LENGTH(user_type_enum) - 6), '''', ''), ',', '","');
@@ -1892,7 +1892,7 @@ BEGIN
                      UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 
                      UNION SELECT 7 UNION SELECT 8 UNION SELECT 9) b
             ) numbers
-            WHERE table_schema = 'erms'                 --database name
+            WHERE table_schema = 'erms'
               AND table_name = 'Users'
               AND column_name = 'signup_method'
               AND numbers.n <= LENGTH(column_type) - LENGTH(REPLACE(column_type, ',', '')) + 1
@@ -1915,7 +1915,7 @@ BEGIN
                      UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 
                      UNION SELECT 7 UNION SELECT 8 UNION SELECT 9) b
             ) numbers
-            WHERE table_schema = 'erms'                 --database name
+            WHERE table_schema = 'erms'
               AND table_name = 'Users'
               AND column_name = 'user_type'
               AND numbers.n <= LENGTH(column_type) - LENGTH(REPLACE(column_type, ',', '')) + 1
