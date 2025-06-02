@@ -1965,27 +1965,43 @@ DELIMITER ;
 
 -- Procedure for Employee Details
 DELIMITER $$
+
 CREATE PROCEDURE EmployeeDetails
 (
-    IN p_user_id INT,
-    IN p_user_name VARCHAR(100),
-    IN p_email_id VARCHAR(100),
-    IN p_mobile_number VARCHAR(15),
-    IN p_date_of_birth DATE,
-    IN p_active_on DATE
+    IN p_loggedin_user_id INT
 )
 BEGIN
-    UPDATE Users 
-    SET user_name = p_user_name, 
-        email_id = p_email_id, 
-        mobile_number = p_mobile_number, 
-        date_of_birth = p_date_of_birth,
-        active_on = p_active_on,
-        deactive_on = p_deactive_on
-    WHERE user_id = p_user_id;
-    
-    SELECT user_name, email_id, mobile_number, date_of_birth, active_on, deactive_on FROM Users WHERE user_type = 'employee';
+    DECLARE is_admin INT DEFAULT 0;
+    DECLARE access_denied_message VARCHAR(255);
+
+    -- Check if logged-in user is an administrator
+    SELECT COUNT(*) INTO is_admin
+    FROM Users
+    WHERE user_id = p_loggedin_user_id AND user_type = 'administrator';
+
+    -- Proceed only if the logged-in user is an administrator
+    IF is_admin = 1 THEN
+        -- Return JSON data for approved, active employees
+        SELECT JSON_ARRAYAGG(
+            JSON_OBJECT(
+                'user_name', u.user_name,
+                'mobile_number', u.mobile_number,
+                'email_id', u.email_id,
+                'date_of_birth', u.date_of_birth
+            )
+        ) AS approved_employees_data
+        FROM Users u
+        WHERE u.user_type = 'employee'
+          AND u.login_approval = TRUE
+          AND u.deactive_on IS NULL;
+    ELSE
+        -- Signal an error if not an administrator
+        SET access_denied_message = 'Access Denied: Only administrators can view approved employee details.';
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = access_denied_message;
+    END IF;
 END $$
+
 DELIMITER ;
 
 
@@ -1994,25 +2010,38 @@ DELIMITER $$
 
 CREATE PROCEDURE ManagerDetails
 (
-    IN p_user_id INT,
-    IN p_user_name VARCHAR(100),
-    IN p_email_id VARCHAR(100),
-    IN p_mobile_number VARCHAR(15),
-    IN p_date_of_birth DATE,
-    IN p_active_on DATE,
-    IN p_deactive_on DATE
+    IN p_loggedin_user_id INT
 )
 BEGIN
-    UPDATE Users
-    SET user_name = p_user_name,
-        email_id = p_email_id,
-        mobile_number = p_mobile_number,
-        date_of_birth = p_date_of_birth,
-        active_on = p_active_on,
-        deactive_on = p_deactive_on
-    WHERE user_id = p_user_id;
+    DECLARE is_admin INT DEFAULT 0;
+    DECLARE access_denied_message VARCHAR(255);
 
-    SELECT user_name, email_id, mobile_number, date_of_birth, active_on, deactive_on FROM Users WHERE user_type = 'manager';
+    -- Check if logged-in user is an administrator
+    SELECT COUNT(*) INTO is_admin
+    FROM Users
+    WHERE user_id = p_loggedin_user_id AND user_type = 'administrator';
+
+    -- Proceed only if the logged-in user is an administrator
+    IF is_admin = 1 THEN
+        -- Return JSON data for approved, active managers
+        SELECT JSON_ARRAYAGG(
+            JSON_OBJECT(
+                'user_name', u.user_name,
+                'mobile_number', u.mobile_number,
+                'email_id', u.email_id,
+                'date_of_birth', u.date_of_birth
+            )
+        ) AS approved_managers_data
+        FROM Users u
+        WHERE u.user_type = 'manager'
+          AND u.login_approval = TRUE
+          AND u.deactive_on IS NULL;
+    ELSE
+        -- Signal an error if not an administrator
+        SET access_denied_message = 'Access Denied: Only administrators can view approved manager details.';
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = access_denied_message;
+    END IF;
 END $$
 
 DELIMITER ;
