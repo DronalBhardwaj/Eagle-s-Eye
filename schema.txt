@@ -291,10 +291,10 @@ END $$
 DELIMITER ;
 
 
---Procedure for Updating Dashboard Counter
+--Procedure for Dashboard Counter
 DELIMITER $$
 
-CREATE PROCEDURE UpdateDashboardCounter
+CREATE PROCEDURE DashboardCounter
 (
     IN p_user_id INT
 )
