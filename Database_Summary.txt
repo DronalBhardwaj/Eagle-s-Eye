@@ -1,7 +1,6 @@
 Procedure for User Signup// dropdown options
 Procedure for Sign In
-Procedure for Updating Dashboard Counter
-Procedure for displaying Dashboard Counter
+Procedure for Dashboard Counter
 Procedure for displaying all Departments
 Procedure for displaying all Technologies
 Procedure to get particular Department
