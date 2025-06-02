@@ -642,6 +642,7 @@ DELIMITER ;
 
 
 -- Procedure to insert Project details
+use erms;
 DELIMITER $$
 
 CREATE PROCEDURE InsertProjectDetails
@@ -680,24 +681,24 @@ BEGIN
 
     -- Cursor Declarations
     DECLARE mgr_cursor CURSOR FOR
-        SELECT TRIM(value)
-        FROM JSON_TABLE(CONCAT('["', REPLACE(v_manager_names, ',', '","'), '"]')
-            COLUMNS (value VARCHAR(255) PATH '$'));
+        SELECT TRIM(jt.value) -- Use the alias in SELECT
+        FROM JSON_TABLE(CONCAT('["', REPLACE(v_manager_names, ',', '","'), '"]'),
+            '$[*]' COLUMNS (value VARCHAR(255) PATH '$')) AS jt; -- Added AS jt
 
     DECLARE role_mgr_cursor CURSOR FOR
-        SELECT TRIM(value)
-        FROM JSON_TABLE(CONCAT('["', REPLACE(v_manager_roles, ',', '","'), '"]')
-            COLUMNS (value VARCHAR(255) PATH '$'));
+        SELECT TRIM(jt.value) -- Use the alias in SELECT
+        FROM JSON_TABLE(CONCAT('["', REPLACE(v_manager_roles, ',', '","'), '"]'),
+            '$[*]' COLUMNS (value VARCHAR(255) PATH '$')) AS jt; -- Added AS jt
 
     DECLARE emp_cursor CURSOR FOR
-        SELECT TRIM(value)
-        FROM JSON_TABLE(CONCAT('["', REPLACE(v_employee_names, ',', '","'), '"]')
-            COLUMNS (value VARCHAR(255) PATH '$'));
+        SELECT TRIM(jt.value) -- Use the alias in SELECT
+        FROM JSON_TABLE(CONCAT('["', REPLACE(v_employee_names, ',', '","'), '"]'),
+            '$[*]' COLUMNS (value VARCHAR(255) PATH '$')) AS jt; -- Added AS jt
 
     DECLARE role_emp_cursor CURSOR FOR
-        SELECT TRIM(value)
-        FROM JSON_TABLE(CONCAT('["', REPLACE(v_employee_roles, ',', '","'), '"]')
-            COLUMNS (value VARCHAR(255) PATH '$'));
+        SELECT TRIM(jt.value) -- Use the alias in SELECT
+        FROM JSON_TABLE(CONCAT('["', REPLACE(v_employee_roles, ',', '","'), '"]'),
+            '$[*]' COLUMNS (value VARCHAR(255) PATH '$')) AS jt; -- Added AS jt
 
     -- Handler Declaration
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
@@ -1057,6 +1058,12 @@ CREATE PROCEDURE UpdateProjectDetails
     IN p_input_json JSON
 )
 BEGIN
+    -- ******************************************************
+    -- ALL DECLARE STATEMENTS (VARIABLES, CURSORS, HANDLERS)
+    -- MUST COME FIRST IN THE BEGIN...END BLOCK
+    -- ******************************************************
+
+    -- Variable Declarations
     DECLARE p_project_id INT;
     DECLARE p_user_id INT;
     DECLARE p_project_name VARCHAR(255);
@@ -1080,25 +1087,53 @@ BEGIN
     DECLARE user_mgr_id INT;
     DECLARE done INT DEFAULT 0;
 
+    -- Cursor Declarations
+    DECLARE mgr_cursor CURSOR FOR
+        SELECT TRIM(jt.value)
+        FROM JSON_TABLE(CONCAT('["', REPLACE(p_manager_names, ',', '","'), '"]'),
+            '$[*]' COLUMNS (value VARCHAR(255) PATH '$')) AS jt;
+
+    DECLARE role_mgr_cursor CURSOR FOR
+        SELECT TRIM(jt.value)
+        FROM JSON_TABLE(CONCAT('["', REPLACE(p_manager_roles, ',', '","'), '"]'),
+            '$[*]' COLUMNS (value VARCHAR(255) PATH '$')) AS jt;
+
+    DECLARE emp_cursor CURSOR FOR
+        SELECT TRIM(jt.value)
+        FROM JSON_TABLE(CONCAT('["', REPLACE(p_employee_names, ',', '","'), '"]'),
+            '$[*]' COLUMNS (value VARCHAR(255) PATH '$')) AS jt;
+
+    DECLARE role_emp_cursor CURSOR FOR
+        SELECT TRIM(jt.value)
+        FROM JSON_TABLE(CONCAT('["', REPLACE(p_employee_roles, ',', '","'), '"]'),
+            '$[*]' COLUMNS (value VARCHAR(255) PATH '$')) AS jt;
+
+    -- Handler Declaration
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
+
+    -- ******************************************************
+    -- EXECUTABLE STATEMENTS BEGIN HERE
+    -- ******************************************************
+
     -- Extract values from JSON input
-    SET p_project_id         = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.project_id'));
-    SET p_user_id            = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.user_id'));
-    SET p_project_name       = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.project_name'));
-    SET p_client_name        = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.client_name'));
-    SET p_project_department = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.project_department'));
-    SET p_project_description= JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.project_description'));
-    SET p_project_deadline   = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.project_deadline'));
-    SET p_assigned_date      = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.assigned_date'));
-    SET p_project_technology = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.project_technology'));
-    SET p_project_report     = FROM_BASE64(JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.project_report')));
-    SET p_employee_names     = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.employee_names'));
-    SET p_employee_roles     = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.employee_roles'));
-    SET p_manager_names      = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.manager_names'));
-    SET p_manager_roles      = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.manager_roles'));
+    SET p_project_id           = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.project_id'));
+    SET p_user_id              = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.user_id'));
+    SET p_project_name         = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.project_name'));
+    SET p_client_name          = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.client_name'));
+    SET p_project_department   = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.project_department'));
+    SET p_project_description  = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.project_description'));
+    SET p_project_deadline     = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.project_deadline'));
+    SET p_assigned_date        = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.assigned_date'));
+    SET p_project_technology   = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.project_technology'));
+    SET p_project_report       = FROM_BASE64(JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.project_report')));
+    SET p_employee_names       = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.employee_names'));
+    SET p_employee_roles       = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.employee_roles'));
+    SET p_manager_names        = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.manager_names'));
+    SET p_manager_roles        = JSON_UNQUOTE(JSON_EXTRACT(p_input_json, '$.manager_roles'));
 
     -- Update Projects table
     UPDATE Projects
-    SET 
+    SET
         project_name = p_project_name,
         client_name = p_client_name,
         project_department = p_project_department,
@@ -1131,16 +1166,6 @@ BEGIN
     DELETE FROM Project_Employees WHERE project_id = p_project_id;
 
     -- Process Managers
-    DECLARE mgr_cursor CURSOR FOR 
-        SELECT TRIM(value) FROM JSON_TABLE(CONCAT('["', REPLACE(p_manager_names, ',', '","'), '"]')
-            COLUMNS (value VARCHAR(255) PATH '$'));
-
-    DECLARE role_mgr_cursor CURSOR FOR 
-        SELECT TRIM(value) FROM JSON_TABLE(CONCAT('["', REPLACE(p_manager_roles, ',', '","'), '"]')
-            COLUMNS (value VARCHAR(255) PATH '$'));
-
-    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
-
     SET done = 0;
     OPEN mgr_cursor;
     OPEN role_mgr_cursor;
@@ -1148,14 +1173,17 @@ BEGIN
     read_mgr: LOOP
         FETCH mgr_cursor INTO manager_name;
         FETCH role_mgr_cursor INTO manager_role;
-        IF done THEN 
+        IF done THEN
             LEAVE read_mgr;
         END IF;
 
-        SELECT user_id INTO user_mgr_id FROM Users WHERE user_name = manager_name AND user_type = 'manager' LIMIT 1;
+        SELECT user_id INTO user_mgr_id
+        FROM Users
+        WHERE user_name = manager_name AND user_type = 'manager'
+        LIMIT 1;
 
         IF user_mgr_id IS NOT NULL THEN
-            INSERT INTO Project_Managers (project_id, user_id, manager_role_assigned, manager_name, project_accepted)
+            INSERT INTO Project_Managers (project_id, manager_id, manager_role_assigned, manager_name, project_accepted)
             VALUES (p_project_id, user_mgr_id, manager_role, manager_name, FALSE);
         END IF;
     END LOOP;
@@ -1166,28 +1194,23 @@ BEGIN
     -- Process Employees
     SET done = 0;
 
-    DECLARE emp_cursor CURSOR FOR 
-        SELECT TRIM(value) FROM JSON_TABLE(CONCAT('["', REPLACE(p_employee_names, ',', '","'), '"]')
-            COLUMNS (value VARCHAR(255) PATH '$'));
-
-    DECLARE role_emp_cursor CURSOR FOR 
-        SELECT TRIM(value) FROM JSON_TABLE(CONCAT('["', REPLACE(p_employee_roles, ',', '","'), '"]')
-            COLUMNS (value VARCHAR(255) PATH '$'));
-
     OPEN emp_cursor;
     OPEN role_emp_cursor;
 
     read_emp: LOOP
         FETCH emp_cursor INTO employee_name;
         FETCH role_emp_cursor INTO employee_role;
-        IF done THEN 
+        IF done THEN
             LEAVE read_emp;
         END IF;
 
-        SELECT user_id INTO user_emp_id FROM Users WHERE user_name = employee_name AND user_type = 'employee' LIMIT 1;
+        SELECT user_id INTO user_emp_id
+        FROM Users
+        WHERE user_name = employee_name AND user_type = 'employee'
+        LIMIT 1;
 
         IF user_emp_id IS NOT NULL THEN
-            INSERT INTO Project_Employees (project_id, user_id, employee_role_assigned, employee_name, project_accepted)
+            INSERT INTO Project_Employees (project_id, employee_id, employee_role_assigned, employee_name, project_accepted)
             VALUES (p_project_id, user_emp_id, employee_role, employee_name, FALSE);
         END IF;
     END LOOP;
@@ -1198,7 +1221,6 @@ BEGIN
 END $$
 
 DELIMITER ;
-
 
 -- Procedure to Delete any Project
 DELIMITER $$
