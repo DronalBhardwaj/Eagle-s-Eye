@@ -1418,25 +1418,20 @@ DELIMITER ;
 -- Procedure for Approval View of all Users
 DELIMITER $$
 
-CREATE PROCEDURE ApprovalView
-(
+CREATE PROCEDURE ApprovalView (
     IN p_admin_user_id INT
 )
 BEGIN
     DECLARE admin_check INT DEFAULT 0;
 
-    -- Step 1: Check if the requesting user is an administrator
     SELECT COUNT(*) INTO admin_check
     FROM Users
     WHERE user_id = p_admin_user_id
       AND user_type = 'administrator';
 
-    -- Step 2: If administrator, return all users with login_approval = false as JSON
     IF admin_check = 1 THEN
-        SELECT JSON_ARRAYAGG
-        (
-            JSON_OBJECT
-            (
+        SELECT CONCAT('[', GROUP_CONCAT(
+            JSON_OBJECT(
                 'user_id', user_id,
                 'user_type', user_type,
                 'user_name', user_name,
@@ -1448,7 +1443,8 @@ BEGIN
                 'user_image', TO_BASE64(user_image),
                 'active_on', active_on
             )
-        ) AS pending_approvals
+            SEPARATOR ','
+        ), ']') AS pending_approvals
         FROM Users
         WHERE login_approval = FALSE;
     ELSE
