@@ -335,6 +335,52 @@ END $$
 DELIMITER ;
 
 
+DELIMITER $$
+
+CREATE PROCEDURE AddNewTechnology (
+    IN p_technology_data JSON
+)
+BEGIN
+    DECLARE v_technology VARCHAR(255);
+    DECLARE v_technology_status ENUM('Active', 'InActive');
+    DECLARE v_color VARCHAR(7);
+
+    -- Extract values from JSON input
+    SET v_technology = JSON_UNQUOTE(JSON_EXTRACT(p_technology_data, '$.technology'));
+    SET v_technology_status = JSON_UNQUOTE(JSON_EXTRACT(p_technology_data, '$.technology_status'));
+    SET v_color = JSON_UNQUOTE(JSON_EXTRACT(p_technology_data, '$.color'));
+
+    -- Insert new technology record
+    INSERT INTO Technologies (technology, technology_status, color)
+    VALUES (v_technology, v_technology_status, v_color);
+END $$
+
+DELIMITER ;
+
+
+DELIMITER $$
+
+CREATE PROCEDURE AddNewDepartment (
+    IN p_department_data JSON
+)
+BEGIN
+    DECLARE v_department VARCHAR(255);
+    DECLARE v_department_status ENUM('Active', 'InActive');
+    DECLARE v_color VARCHAR(7);
+
+    -- Extract values from JSON input
+    SET v_department = JSON_UNQUOTE(JSON_EXTRACT(p_department_data, '$.department'));
+    SET v_department_status = JSON_UNQUOTE(JSON_EXTRACT(p_department_data, '$.department_status'));
+    SET v_color = JSON_UNQUOTE(JSON_EXTRACT(p_department_data, '$.color'));
+
+    -- Insert new department record
+    INSERT INTO Departments (department, department_status, color)
+    VALUES (v_department, v_department_status, v_color);
+END $$
+
+DELIMITER ;
+
+
 --Procedure for displaying all Departments
 DELIMITER $$
 
