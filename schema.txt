@@ -1,3 +1,6 @@
+--GETProjectDetails() does not show project details instead user names
+
+
 CREATE DATABASE ERMS;
 USE ERMS;
 
@@ -382,14 +385,14 @@ DELIMITER ;
 
 
 --Procedure for displaying all Departments
+
+
 DELIMITER $$
 
 CREATE PROCEDURE displayDepartments()
 BEGIN
-    SELECT JSON_ARRAYAGG
-    (
-        JSON_OBJECT
-        (
+    SELECT JSON_ARRAYAGG(
+        JSON_OBJECT(
             'dept_id', dept_id,
             'department', department,
             'department_status', department_status,
@@ -407,10 +410,8 @@ DELIMITER $$
 
 CREATE PROCEDURE displayTechnologies()
 BEGIN
-    SELECT JSON_ARRAYAGG
-    (
-        JSON_OBJECT
-        (
+    SELECT JSON_ARRAYAGG(
+        JSON_OBJECT(
             'tech_id', tech_id,
             'technology', technology,
             'technology_status', technology_status,
@@ -900,22 +901,22 @@ DELIMITER ;
 
 
 -- Procedure to display all Project Details
+
+
 DELIMITER $$
 
 CREATE PROCEDURE GetUserProjectDetails(IN p_user_id INT)
 BEGIN
     DECLARE v_user_name VARCHAR(255);
 
-    -- Retrieve user_name associated with the provided user_id
+    -- Step 1: Get the user name for matching
     SELECT user_name INTO v_user_name
     FROM Users
     WHERE user_id = p_user_id;
 
-    -- Return matching project details as JSON array
-    SELECT JSON_ARRAYAGG
-    (
-        JSON_OBJECT
-        (
+    -- Step 2: Return all matching project details as JSON
+    SELECT JSON_ARRAYAGG(
+        JSON_OBJECT(
             'project_id', pd.project_id,
             'project_name', pd.project_name,
             'client_name', pd.client_name,
@@ -937,10 +938,12 @@ BEGIN
             FROM (
                 SELECT TRIM(SUBSTRING_INDEX(manager, ' (', 1)) AS manager_name
                 FROM (
-                    SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(pd.manager_details, ', ', n.digit+1), ', ', -1) AS manager
+                    SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(pd.manager_details, ', ', n.digit + 1), ', ', -1) AS manager
                     FROM (
-                        SELECT 0 digit UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION 
-                               SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9
+                        SELECT 0 digit UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 
+                        UNION SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9
+                        UNION SELECT 10 UNION SELECT 11 UNION SELECT 12 UNION SELECT 13 UNION SELECT 14 
+                        UNION SELECT 15 UNION SELECT 16 UNION SELECT 17 UNION SELECT 18 UNION SELECT 19
                     ) n
                     WHERE LENGTH(pd.manager_details) - LENGTH(REPLACE(pd.manager_details, ',', '')) >= n.digit
                 ) managers
@@ -952,10 +955,12 @@ BEGIN
             FROM (
                 SELECT TRIM(SUBSTRING_INDEX(employee, ' (', 1)) AS employee_name
                 FROM (
-                    SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(pd.employee_details, ', ', n.digit+1), ', ', -1) AS employee
+                    SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(pd.employee_details, ', ', n.digit + 1), ', ', -1) AS employee
                     FROM (
-                        SELECT 0 digit UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION 
-                               SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9
+                        SELECT 0 digit UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 
+                        UNION SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9
+                        UNION SELECT 10 UNION SELECT 11 UNION SELECT 12 UNION SELECT 13 UNION SELECT 14 
+                        UNION SELECT 15 UNION SELECT 16 UNION SELECT 17 UNION SELECT 18 UNION SELECT 19
                     ) n
                     WHERE LENGTH(pd.employee_details) - LENGTH(REPLACE(pd.employee_details, ',', '')) >= n.digit
                 ) employees
@@ -1539,6 +1544,7 @@ DELIMITER ;
 
 
 -- Get or Display User details of any new user for edit
+
 DELIMITER $$
 
 CREATE PROCEDURE GetUserProfileByAdminWithSignupOptions
@@ -1592,14 +1598,11 @@ BEGIN
                 'user_type', v_user_type,
                 'user_name', v_user_name,
                 'date_of_birth', v_date_of_birth,
-                'designation_info', -- This is the single field containing both designation data
+                'designation_info', 
                 JSON_OBJECT
                 (
-                    'dropdown_options',                         -- The list for the dropdown
-                    (
-                        SELECT JSON_ARRAYAGG(d.designation_name)
-                        FROM Designation d
-                    )
+                    'dropdown_options', 
+                    (SELECT JSON_ARRAYAGG(d.designation_name) FROM Designation d)
                 ),
                 'signup_method', v_signup_method,
                 'mobile_number', v_mobile_number,
@@ -1607,13 +1610,9 @@ BEGIN
                 'user_image', TO_BASE64(IFNULL(v_user_image, '')),
                 'active_on', v_active_on
             ),
-            'signup_method_options', JSON_ARRAYAGG
-            (
-                TRIM(BOTH ' ' FROM 
-                    TRIM(BOTH '"' FROM 
-                        SUBSTRING_INDEX(SUBSTRING_INDEX(enum_signup_methods, ',', n), ',', -1)
-                    )
-                )
+            'signup_method_options',
+            JSON_ARRAYAGG(
+                TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(enum_signup_methods, ',', numbers.n), ',', -1))
             )
         ) AS user_profile_data
         FROM
@@ -1694,6 +1693,8 @@ DELIMITER ;
 
 
 -- Display the profile data of all approved employees
+
+
 DELIMITER $$
 
 CREATE PROCEDURE GetAllApprovedUsersByAdmin
@@ -1710,10 +1711,8 @@ BEGIN
 
     -- If admin, return all approved users as JSON
     IF is_admin = 1 THEN
-        SELECT JSON_ARRAYAGG
-        (
-            JSON_OBJECT
-            (
+        SELECT JSON_ARRAYAGG(
+            JSON_OBJECT(
                 'user_id', user_id,
                 'user_type', user_type,
                 'user_name', user_name,
@@ -1920,6 +1919,7 @@ DELIMITER ;
 
 
 -- Procedure to return blank form and return dropdown values for new user creation
+
 DELIMITER $$
 
 CREATE PROCEDURE GetDropdownValuesForNewUser
@@ -1961,6 +1961,48 @@ BEGIN
               AND column_name = 'signup_method'
               AND numbers.n <= LENGTH(column_type) - LENGTH(REPLACE(column_type, ',', '')) + 1
         ) AS enum_vals;
+
+        -- Get ENUM values for user_type
+        SELECT JSON_ARRAYAGG(TRIM(BOTH '\'' FROM enum_val)) INTO user_types_json
+        FROM 
+        (
+            SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(column_type, ',', numbers.n), ',', -1) AS enum_val
+            FROM information_schema.columns
+            JOIN 
+            (
+                SELECT a.N + b.N * 10 + 1 AS n
+                FROM 
+                    (SELECT 0 AS N UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 
+                     UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 
+                     UNION SELECT 7 UNION SELECT 8 UNION SELECT 9) a,
+                    (SELECT 0 AS N UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 
+                     UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 
+                     UNION SELECT 7 UNION SELECT 8 UNION SELECT 9) b
+            ) numbers
+            WHERE table_schema = 'erms'
+              AND table_name = 'Users'
+              AND column_name = 'user_type'
+              AND numbers.n <= LENGTH(column_type) - LENGTH(REPLACE(column_type, ',', '')) + 1
+        ) AS enum_vals;
+
+        -- Get designations (fix: use singular `Designation`)
+        SELECT JSON_ARRAYAGG(designation_name) INTO designations_json
+        FROM Designation;
+
+        -- Return all dropdown options
+        SELECT JSON_OBJECT
+        (
+            'user_type_options', user_types_json,
+            'signup_method_options', signup_methods_json,
+            'user_designation_options', designations_json
+        ) AS dropdowns;
+    ELSE
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Access Denied: Only administrators can retrieve dropdown options.';
+    END IF;
+END $$
+
+DELIMITER ;
 
         -- Get ENUM values for user_type
         SELECT JSON_ARRAYAGG(TRIM(BOTH '\'' FROM enum_val)) INTO user_types_json
