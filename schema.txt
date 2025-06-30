@@ -1,4 +1,4 @@
---GETProjectDetails() does not show project details instead user names
+-- GETProjectDetails() does not show project details instead user names
 
 
 CREATE DATABASE ERMS;
@@ -1988,48 +1988,6 @@ BEGIN
         -- Get designations (fix: use singular `Designation`)
         SELECT JSON_ARRAYAGG(designation_name) INTO designations_json
         FROM Designation;
-
-        -- Return all dropdown options
-        SELECT JSON_OBJECT
-        (
-            'user_type_options', user_types_json,
-            'signup_method_options', signup_methods_json,
-            'user_designation_options', designations_json
-        ) AS dropdowns;
-    ELSE
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Access Denied: Only administrators can retrieve dropdown options.';
-    END IF;
-END $$
-
-DELIMITER ;
-
-        -- Get ENUM values for user_type
-        SELECT JSON_ARRAYAGG(TRIM(BOTH '\'' FROM enum_val)) INTO user_types_json
-        FROM 
-        (
-            SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(column_type, ',', numbers.n), ',', -1) AS enum_val
-            FROM information_schema.columns
-            JOIN 
-            (
-                SELECT a.N + b.N * 10 + 1 AS n
-                FROM 
-                    (SELECT 0 AS N UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 
-                     UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 
-                     UNION SELECT 7 UNION SELECT 8 UNION SELECT 9) a,
-                    (SELECT 0 AS N UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 
-                     UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 
-                     UNION SELECT 7 UNION SELECT 8 UNION SELECT 9) b
-            ) numbers
-            WHERE table_schema = 'erms'
-              AND table_name = 'Users'
-              AND column_name = 'user_type'
-              AND numbers.n <= LENGTH(column_type) - LENGTH(REPLACE(column_type, ',', '')) + 1
-        ) AS enum_vals;
-
-        -- Get designations
-        SELECT JSON_ARRAYAGG(designation_name) INTO designations_json
-        FROM Designations;
 
         -- Return all dropdown options
         SELECT JSON_OBJECT
