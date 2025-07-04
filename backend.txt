@@ -1,0 +1,954 @@
+src/
+├── main/
+│   ├── java/com/example/backend/
+│   │   ├── controller/
+│   │   │   └── AuthController.java
+│   │   ├── dto/
+│   │   │   ├── LoginRequest.java
+│   │   │   ├── OtpRequest.java
+│   │   │   ├── OtpVerifyRequest.java
+│   │   │   └── OAuthRequest.java
+│   │   ├── entity/
+│   │   │   └── User.java
+│   │   ├── repository/
+│   │   │   └── UserRepository.java
+│   │   ├── security/
+│   │   │   ├── JwtUtil.java
+│   │   │   └── SecurityConfig.java
+│   │   ├── service/
+│   │   │   ├── AuthService.java
+│   │   │   ├── OtpService.java
+│   │   │   └── impl/
+│   │   │       ├── AuthServiceImpl.java
+│   │   │       └── OtpServiceImpl.java
+│   │   └── BackendApplication.java
+│   └── resources/
+│       └── application.properties
+└── test/java/com/example/backend/ (tests optional)
+
+AuthController.java
+package com.erms.backend.controller;
+
+import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
+import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier;
+import com.google.api.client.googleapis.javanet.NetHttpTransport;
+import com.google.api.client.json.GsonFactory;  
+import com.google.firebase.auth.FirebaseToken;
+import com.erms.backend.dto.*;
+import com.erms.backend.entity.User;
+import com.erms.backend.repository.UserRepository;
+import com.erms.backend.service.AuthService;
+import com.erms.backend.service.FirebaseTokenService;
+import com.erms.backend.security.JwtUtil;
+import com.erms.backend.service.OtpService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.*;
+
+@RestController
+@RequestMapping("/auth")
+@CrossOrigin(origins = "http://localhost:3000")
+public class AuthController {
+
+    @Autowired
+    private AuthService authService;
+
+    @Autowired
+    private OtpService otpService;
+
+    @Autowired
+    private FirebaseTokenService firebaseTokenService;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private JwtUtil jwtUtil;
+
+    private final String GOOGLE_CLIENT_ID = "443748242715-1dvtft3ml3ed7q8492auencem9s1rpq3.apps.googleusercontent.com"; //YOUR_WEB_CLIENT_ID_FROM_FIREBASE
+
+    @PostMapping("/verify-firebase-token")
+    public ResponseEntity<?> verifyFirebaseToken(@RequestBody Map<String, String> request) {
+        String idToken = request.get("firebaseIdToken");
+        try {
+            FirebaseToken decodedToken = firebaseTokenService.verifyToken(idToken);
+            String uid = decodedToken.getUid();
+            return ResponseEntity.ok(Map.of("status", "success", "uid", uid, "email", decodedToken.getEmail()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("status", "error", "message", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/send-otp")
+    public ResponseEntity<String> sendOtp(@RequestBody OtpRequestDTO request) {
+        otpService.generateOtp(request.getEmailOrMobile());
+        return ResponseEntity.ok("OTP sent");
+    }
+
+    @PostMapping("/verify-otp")
+    public ResponseEntity<Map<String, String>> verifyOtp(@RequestBody OtpVerifyDTO request) {
+        String accessToken = authService.processOtpLogin(request.getEmailOrMobile(), request.getOtp());
+        return ResponseEntity.ok(Map.of("accessToken", accessToken));
+    }
+
+    @PostMapping("/set-password")
+    public ResponseEntity<String> setPassword(@RequestBody SetPasswordRequest req) {
+        String message = authService.setPassword(req.getEmailOrMobile(), req.getPassword());
+        return ResponseEntity.ok(message);
+    }
+
+    @PostMapping("/login-password")
+    public ResponseEntity<TokenResponseDTO> loginPassword(@RequestBody SetPasswordRequest req) {
+        TokenResponseDTO tokens = authService.loginWithPassword(req.getEmailOrMobile(), req.getPassword());
+        return ResponseEntity.ok(tokens);
+    }
+
+    @PostMapping("/oauth")
+    public ResponseEntity<Map<String, String>> oauthLogin(@RequestBody OAuthRequest req) {
+        String accessToken = authService.processOAuth(req.getToken(), req.getProvider());
+        return ResponseEntity.ok(Map.of("accessToken", accessToken));
+    }
+
+    @PostMapping("/refresh")
+    public ResponseEntity<Map<String, String>> refresh(@RequestHeader("Authorization") String authHeader) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Missing or invalid Authorization header"));
+        }
+        String refreshToken = authHeader.substring(7);
+        String newAccessToken = authService.refreshAccessToken(refreshToken);
+        return ResponseEntity.ok(Map.of("accessToken", newAccessToken));
+    }
+
+    @PostMapping("/forgot-password-request")
+    public ResponseEntity<String> forgotPasswordRequest(@RequestBody OtpRequestDTO req) {
+        authService.checkUserExists(req.getEmailOrMobile());
+        otpService.generateOtp(req.getEmailOrMobile());
+        return ResponseEntity.ok("OTP sent for password reset");
+    }
+
+    @PostMapping("/forgot-password-verify")
+    public ResponseEntity<String> forgotPasswordVerify(@RequestBody ForgotPasswordVerifyRequest req) {
+        boolean otpValid = otpService.verifyOtp(req.getEmailOrMobile(), req.getOtp());
+        if (!otpValid) {
+            return ResponseEntity.badRequest().body("Invalid or expired OTP");
+        }
+        String msg = authService.setPassword(req.getEmailOrMobile(), req.getNewPassword());
+        return ResponseEntity.ok(msg);
+    }
+
+    // === Google OAuth Token Verification for React App ===
+    @PostMapping("/google")
+    public ResponseEntity<?> authenticateViaGoogle(@RequestBody Map<String, String> body) {
+        String token = body.get("token");
+        try {
+            GoogleIdToken.Payload payload = verifyGoogleToken(token);
+            if (payload == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid Google token");
+            }
+
+            String email = payload.getEmail();
+            String name = (String) payload.get("name");
+            String picture = (String) payload.get("picture");
+
+            Optional<User> optionalUser = userRepository.findByEmail(email);
+            User user = optionalUser.orElseGet(User::new);
+
+            user.setEmail(email);
+            user.setName(name);
+            user.setProfilePicture(picture);
+            user.setProvider("GOOGLE");
+            userRepository.save(user);
+
+            String jwt = jwtUtil.generateToken(user);
+
+            return ResponseEntity.ok(Map.of("jwt", jwt));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Google login failed: " + e.getMessage());
+        }
+    }
+
+    private GoogleIdToken.Payload verifyGoogleToken(String idTokenString) {
+        try {
+            GoogleIdTokenVerifier verifier = new GoogleIdTokenVerifier.Builder(
+                    new NetHttpTransport(), new GsonFactory())
+                    .setAudience(Collections.singletonList(GOOGLE_CLIENT_ID))
+                    .build();
+
+            GoogleIdToken idToken = verifier.verify(idTokenString);
+            return idToken != null ? idToken.getPayload() : null;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+}
+
+
+
+
+AuthService.java
+package com.erms.backend.controller;
+
+public interface AuthService {
+    String processOtpLogin(String contact, String otp);
+    String processOAuth(String token, String provider);
+    /**
+     * Refresh access token using refresh token.
+     * @param refreshToken The refresh token.
+     * @return New access token.
+     */
+    String refreshAccessToken(String refreshToken);
+
+}
+
+
+
+UserController.java
+package com.erms.backend.controller;
+
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    @GetMapping("/me")
+    public String me() {
+        return "You are authenticated!";
+    }
+}
+
+
+ForgotPasswordVerifyRequest.java
+package com.erms.backend.dto;
+
+public class ForgotPasswordVerifyRequest {
+    private String emailOrMobile;
+    private String otp;
+    private String newPassword;
+
+    public String getEmailOrMobile() {
+        return emailOrMobile;
+    }
+
+    public void setEmailOrMobile(String emailOrMobile) {
+        this.emailOrMobile = emailOrMobile;
+    }
+
+    public String getOtp() {
+        return otp;
+    }
+
+    public void setOtp(String otp) {
+        this.otp = otp;
+    }
+
+    public String getNewPassword() {
+        return newPassword;
+    }
+
+    public void setNewPassword(String newPassword) {
+        this.newPassword = newPassword;
+    }
+}
+
+
+
+LoginRequest.java
+package com.erms.backend.dto;
+
+public class LoginRequest 
+{
+	public String emailOrMobile;
+}
+
+
+
+OAuthRequest.java
+package com.erms.backend.dto;
+
+public class OAuthRequest {
+    private String token;
+    private String provider;
+
+    public String getToken() {
+        return token;
+    }
+
+    public void setToken(String token) {
+        this.token = token;
+    }
+
+    public String getProvider() {
+        return provider;
+    }
+
+    public void setProvider(String provider) {
+        this.provider = provider;
+    }
+}
+
+
+
+OtpRequestDTO.java
+package com.erms.backend.dto;
+
+public class OAuthRequest {
+    private String token;
+    private String provider;
+
+    public String getToken() {
+        return token;
+    }
+
+    public void setToken(String token) {
+        this.token = token;
+    }
+
+    public String getProvider() {
+        return provider;
+    }
+
+    public void setProvider(String provider) {
+        this.provider = provider;
+    }
+}
+
+
+OtpRequestDTO.java
+package com.erms.backend.dto;
+
+public class OtpRequestDTO {
+    private String emailOrMobile;
+
+    public String getEmailOrMobile() { return emailOrMobile; }
+    public void setEmailOrMobile(String emailOrMobile) { this.emailOrMobile = emailOrMobile; }
+}
+
+
+
+OtpVerifyDTO.java
+package com.erms.backend.dto;
+
+public class OtpVerifyDTO {
+    private String emailOrMobile;
+    private String otp;
+
+    public String getEmailOrMobile() { return emailOrMobile; }
+    public void setEmailOrMobile(String emailOrMobile) { this.emailOrMobile = emailOrMobile; }
+
+    public String getOtp() { return otp; }
+    public void setOtp(String otp) { this.otp = otp; }
+}
+
+
+SetPasswordRequest.java
+package com.erms.backend.dto;
+
+public class SetPasswordRequest {
+    private String emailOrMobile;
+    private String password;
+
+    public String getEmailOrMobile() { return emailOrMobile; }
+    public void setEmailOrMobile(String emailOrMobile) { this.emailOrMobile = emailOrMobile; }
+
+    public String getPassword() { return password; }
+    public void setPassword(String password) { this.password = password; }
+}
+
+
+TokenResponseDTO.java
+package com.erms.backend.dto;
+
+public class TokenResponseDTO {
+    private String accessToken;
+    private String refreshToken;
+
+    public TokenResponseDTO(String accessToken, String refreshToken) {
+        this.accessToken = accessToken;
+        this.refreshToken = refreshToken;
+    }
+
+    public String getAccessToken() {
+        return accessToken;
+    }
+
+    public void setAccessToken(String accessToken) {
+        this.accessToken = accessToken;
+    }
+
+    public String getRefreshToken() {
+        return refreshToken;
+    }
+
+    public void setRefreshToken(String refreshToken) {
+        this.refreshToken = refreshToken;
+    }
+}
+
+
+User.java
+package com.erms.backend.entity;
+
+import jakarta.persistence.*;
+import java.time.LocalDateTime;
+
+@Entity
+public class User 
+{
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String emailOrMobile;
+    private String picture;
+    private String otp;
+    private Boolean isVerified = false;
+    private String provider; // for OAuth
+    private LocalDateTime otpGeneratedTime;
+    private String password;  // hashed password
+
+	// Getter + setter
+	public String getPassword() { return password; }
+	public void setPassword(String password) { this.password = password; }
+
+    public Long getId() { return id; }
+
+    public String getEmailOrMobile() { return emailOrMobile; }
+    public void setEmailOrMobile(String emailOrMobile) { this.emailOrMobile = emailOrMobile; }
+
+    public String getOtp() { return otp; }
+    public void setOtp(String otp) { this.otp = otp; }
+
+    public Boolean getIsVerified() { return isVerified; }
+    public void setIsVerified(Boolean isVerified) { this.isVerified = isVerified; }
+
+    public String getProvider() { return provider; }
+    public void setProvider(String provider) { this.provider = provider; }
+
+    public LocalDateTime getOtpGeneratedTime() { return otpGeneratedTime; }
+    public void setOtpGeneratedTime(LocalDateTime otpGeneratedTime) { this.otpGeneratedTime = otpGeneratedTime; }
+}
+
+
+
+UserRepository.java
+package com.erms.backend.repository;
+
+import com.erms.backend.entity.User;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.Optional;
+
+public interface UserRepository extends JpaRepository<User, Long> {
+	Optional<User> findByEmailOrMobile(String emailOrMobile);
+}
+
+
+JwtAuthFilter.java
+package com.erms.backend.security;
+
+import jakarta.servlet.*;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+
+@Component
+public class JwtAuthFilter implements Filter {
+    private final JwtUtil jwtUtil;
+
+    public JwtAuthFilter(JwtUtil jwtUtil) {
+        this.jwtUtil = jwtUtil;
+    }
+
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+            throws IOException, ServletException {
+        HttpServletRequest req = (HttpServletRequest) request;
+        String authHeader = req.getHeader("Authorization");
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            String jwt = authHeader.substring(7);
+            try {
+                String user = jwtUtil.extractUsername(jwt);
+                // You can set authentication in SecurityContext if needed
+            } catch (Exception e) {
+                ((HttpServletResponse) response).sendError(HttpServletResponse.SC_UNAUTHORIZED, "Invalid JWT");
+                return;
+            }
+        } else if (req.getRequestURI().startsWith("/user")) {
+            ((HttpServletResponse) response).sendError(HttpServletResponse.SC_UNAUTHORIZED, "Missing JWT");
+            return;
+        }
+
+        chain.doFilter(request, response);
+    }
+}
+
+
+
+JwtUtil.java
+package com.erms.backend.security;
+
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.security.Keys;
+import org.springframework.stereotype.Component;
+
+import java.util.Date;
+
+@Component
+public class JwtUtil {
+    private final String SECRET = "replace_this_with_a_very_long_secret_key_please_change";
+
+    public String generateToken(String subject) {
+        return Jwts.builder()
+                .setSubject(subject)
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + 60 * 60 * 1000)) // 1 hr
+                .signWith(Keys.hmacShaKeyFor(SECRET.getBytes()), SignatureAlgorithm.HS256)
+                .compact();
+    }
+
+    public String generateRefreshToken(String subject) {
+        return Jwts.builder()
+                .setSubject(subject)
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + 7 * 24 * 60 * 60 * 1000)) // 7 days
+                .signWith(Keys.hmacShaKeyFor(SECRET.getBytes()), SignatureAlgorithm.HS256)
+                .compact();
+    }
+
+
+    public String extractUsername(String token) {
+        return Jwts.parserBuilder()
+                .setSigningKey(Keys.hmacShaKeyFor(SECRET.getBytes()))
+                .build()
+                .parseClaimsJws(token)
+                .getBody()
+                .getSubject();
+    }
+}
+
+
+SecurityConfig.java
+package com.erms.backend.security;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.context.annotation.Bean;
+
+@Configuration
+public class SecurityConfig {
+
+    @Autowired
+    private JwtAuthFilter jwtAuthFilter;
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        return http.csrf(csrf -> csrf.disable())
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/auth/**").permitAll()
+                        .anyRequest().authenticated()
+                )
+                .addFilterBefore(jwtAuthFilter, org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter.class)
+                .build();
+    }
+    
+    @Bean
+    public org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder passwordEncoder() {
+        return new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
+    }
+
+}
+
+
+service.AuthService.java
+package com.erms.backend.service;
+
+import com.erms.backend.dto.TokenResponseDTO;
+
+public interface AuthService {
+
+    /**
+     * Handles login after OTP verification — generates access token.
+     * @param contact The email or mobile number.
+     * @param otp The OTP provided by the user.
+     * @return Access token (JWT).
+     */
+    String processOtpLogin(String contact, String otp);
+
+    /**
+     * Allows user to set a password after OTP verification.
+     * @param contact The email or mobile number.
+     * @param password The password to set.
+     * @return Confirmation message.
+     */
+    String setPassword(String contact, String password);
+
+    /**
+     * Handles login using email/mobile + password.
+     * @param contact The email or mobile number.
+     * @param password The raw password.
+     * @return Access + refresh tokens.
+     */
+    TokenResponseDTO loginWithPassword(String contact, String password);
+
+    /**
+     * Handles login using an OAuth provider.
+     * @param token The OAuth token (ID token for Google, access token for Facebook, LinkedIn, GitHub).
+     * @param provider The provider name.
+     * @return Access token (JWT).
+     */
+    String processOAuth(String token, String provider);
+
+    /**
+     * Generates a new access token from a refresh token.
+     * @param refreshToken The refresh token.
+     * @return New access token (JWT).
+     */
+    String refreshAccessToken(String refreshToken);
+    
+    /**
+     * Checks if user exists by emailOrMobile. Throws if not found.
+     * @param contact email or mobile
+     */
+    void checkUserExists(String contact);
+
+}
+
+FirebaseTokenService.java
+package com.erms.backend.service;
+
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseAuthException;
+import com.google.firebase.auth.FirebaseToken;
+import org.springframework.stereotype.Service;
+
+@Service
+public class FirebaseTokenService {
+
+    public FirebaseToken verifyToken(String idToken) throws FirebaseAuthException {
+        return FirebaseAuth.getInstance().verifyIdToken(idToken);
+    }
+}
+
+
+OtpService.java
+package com.erms.backend.service;
+
+public interface OtpService 
+{
+    void generateOtp(String emailOrMobile);
+    boolean verifyOtp(String emailOrMobile, String otp);
+	void sendOtp(Object emailOrMobile);
+}
+
+
+OtpServiceImpl.java
+package com.erms.backend.service.impl;
+
+import com.erms.backend.dto.TokenResponseDTO;
+import com.erms.backend.entity.User;
+import com.erms.backend.repository.UserRepository;
+import com.erms.backend.security.JwtUtil;
+import com.erms.backend.service.AuthService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.List;
+import java.util.Map;
+
+@Service
+public class AuthServiceImpl implements AuthService {
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private JwtUtil jwtUtil;
+
+    @Autowired
+    private BCryptPasswordEncoder passwordEncoder;
+
+    @Override
+    public String processOtpLogin(String contact, String otp) {
+        User user = userRepository.findByEmailOrMobile(contact).orElseThrow(() -> new RuntimeException("User not found"));
+        if (!Boolean.TRUE.equals(user.getIsVerified())) {
+            throw new RuntimeException("OTP not verified");
+        }
+        return jwtUtil.generateToken(contact);
+    }
+
+    @Override
+    public String setPassword(String contact, String password) {
+        User user = userRepository.findByEmailOrMobile(contact).orElseThrow(() -> new RuntimeException("User not found"));
+        if (!Boolean.TRUE.equals(user.getIsVerified())) {
+            throw new RuntimeException("OTP not verified yet");
+        }
+        user.setPassword(passwordEncoder.encode(password));
+        userRepository.save(user);
+        return "Password set successfully";
+    }
+
+    @Override
+    public TokenResponseDTO loginWithPassword(String contact, String password) {
+        User user = userRepository.findByEmailOrMobile(contact).orElseThrow(() -> new RuntimeException("User not found"));
+
+        if (user.getPassword() == null) {
+            throw new RuntimeException("Password not set for this user");
+        }
+
+        if (!passwordEncoder.matches(password, user.getPassword())) {
+            throw new RuntimeException("Invalid password");
+        }
+
+        String accessToken = jwtUtil.generateToken(contact);
+        String refreshToken = jwtUtil.generateRefreshToken(contact);
+        return new TokenResponseDTO(accessToken, refreshToken);
+    }
+
+    @Override
+    public String processOAuth(String token, String provider) {
+        String emailOrMobile = null;
+        RestTemplate restTemplate = new RestTemplate();
+
+        try {
+            if ("google".equalsIgnoreCase(provider)) {
+                String url = "https://oauth2.googleapis.com/tokeninfo?id_token=" + token;
+                Map<String, Object> result = restTemplate.getForObject(url, Map.class);
+                if (result == null) throw new RuntimeException("OAuth response empty");
+                emailOrMobile = String.valueOf(result.get("email"));
+
+            } else if ("facebook".equalsIgnoreCase(provider)) {
+                String url = "https://graph.facebook.com/me?access_token=" + token + "&fields=email";
+                Map<String, Object> result = restTemplate.getForObject(url, Map.class);
+                if (result == null) throw new RuntimeException("OAuth response empty");
+                emailOrMobile = String.valueOf(result.get("email"));
+
+            } else if ("linkedin".equalsIgnoreCase(provider)) {
+                // Step 1: Exchange code for access token
+                String clientId = "86943urq3b1ixr";
+                String clientSecret = "WPL_AP1.I7975lxssSaHqq6g.Hr2GgA==";
+                String redirectUri = "http://localhost:3000/signup";
+
+                String accessTokenUrl = "https://www.linkedin.com/oauth/v2/accessToken"
+                    + "?grant_type=authorization_code"
+                    + "&code=" + token
+                    + "&redirect_uri=" + redirectUri
+                    + "&client_id=" + clientId
+                    + "&client_secret=" + clientSecret;
+
+                RestTemplate restTemplate = new RestTemplate();
+                Map<String, Object> tokenResponse = restTemplate.postForObject(accessTokenUrl, null, Map.class);
+                if (tokenResponse == null || !tokenResponse.containsKey("access_token")) {
+                    throw new RuntimeException("Failed to retrieve LinkedIn access token");
+                }
+
+                String accessToken = (String) tokenResponse.get("access_token");
+
+                // Step 2: Fetch user info from /userinfo endpoint
+                HttpHeaders headers = new HttpHeaders();
+                headers.set("Authorization", "Bearer " + accessToken);
+                HttpEntity<String> entity = new HttpEntity<>(headers);
+
+                String userInfoUrl = "https://api.linkedin.com/v2/userinfo";
+                ResponseEntity<Map> userInfoResponse = restTemplate.exchange(userInfoUrl, HttpMethod.GET, entity, Map.class);
+                Map<String, Object> userInfo = userInfoResponse.getBody();
+
+                if (userInfo == null || !userInfo.containsKey("email")) {
+                    throw new RuntimeException("Failed to fetch LinkedIn user info");
+                }
+
+                emailOrMobile = (String) userInfo.get("email");
+            }
+
+            } else if ("github".equalsIgnoreCase(provider)) {
+                String url = "https://api.github.com/user/emails";
+                org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+                headers.set("Authorization", "token " + token);
+                org.springframework.http.HttpEntity<String> entity = new org.springframework.http.HttpEntity<>(headers);
+                org.springframework.http.ResponseEntity<List> response = restTemplate.exchange(url, org.springframework.http.HttpMethod.GET, entity, List.class);
+                List emails = response.getBody();
+                if (emails != null && !emails.isEmpty()) {
+                    for (Object obj : emails) {
+                        Map emailEntry = (Map) obj;
+                        if (Boolean.TRUE.equals(emailEntry.get("primary"))) {
+                            emailOrMobile = String.valueOf(emailEntry.get("email"));
+                            break;
+                        }
+                    }
+                }
+
+            } else {
+                throw new RuntimeException("Unsupported provider");
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Invalid OAuth token or failed API call", e);
+        }
+
+        if (emailOrMobile == null) throw new RuntimeException("Email not found in OAuth response");
+
+        User user = userRepository.findByEmailOrMobile(emailOrMobile).orElse(null);
+        if (user == null) {
+            User newUser = new User();
+            newUser.setEmailOrMobile(emailOrMobile);
+            newUser.setProvider(provider);
+            newUser.setIsVerified(true);
+            user = userRepository.save(newUser);
+        }
+
+        return jwtUtil.generateToken(emailOrMobile);
+    }
+
+    @Override
+    public String refreshAccessToken(String refreshToken) {
+        try {
+            String subject = jwtUtil.extractUsername(refreshToken);
+            return jwtUtil.generateToken(subject);
+        } catch (Exception e) {
+            throw new RuntimeException("Invalid or expired refresh token");
+        }
+    }
+    
+    @Override
+    public void checkUserExists(String contact) {
+        userRepository.findByEmailOrMobile(contact)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+    }
+
+}
+
+
+
+OtpServiceImpl.java
+package com.erms.backend.service.impl;
+
+import com.erms.backend.entity.User;
+import com.erms.backend.repository.UserRepository;
+import com.erms.backend.service.OtpService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.stereotype.Service;
+
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.Optional;
+import java.util.Random;
+
+@Service
+public class OtpServiceImpl implements OtpService 
+{
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private JavaMailSender mailSender;
+
+
+    @Override
+    public void generateOtp(String emailOrMobile) 
+    {
+        String otp = String.valueOf(new Random().nextInt(900000) + 100000);
+        User user = userRepository.findByEmailOrMobile(emailOrMobile).orElse(new User());
+
+        user.setEmailOrMobile(emailOrMobile);
+        user.setOtp(otp);
+        user.setOtpGeneratedTime(LocalDateTime.now());
+        user.setIsVerified(false);
+
+        userRepository.save(user);
+
+        if (emailOrMobile.contains("@")) {
+            sendEmail(emailOrMobile, otp);
+        } else {
+            // twilioService.sendSms(emailOrMobile, otp);
+        }
+    }
+
+    private void sendEmail(String to, String otp) 
+    {
+        SimpleMailMessage msg = new SimpleMailMessage();
+        msg.setTo(to);
+        msg.setSubject("Your OTP Code");
+        msg.setText("Your OTP is: " + otp);
+        mailSender.send(msg);
+    }
+
+    @Override
+    public boolean verifyOtp(String emailOrMobile, String otp) 
+    {
+        Optional<User> optionalUser = userRepository.findByEmailOrMobile(emailOrMobile);
+        if (optionalUser.isEmpty()) return false;
+
+        User user = optionalUser.get();
+
+        if (user.getOtp() == null || !user.getOtp().equals(otp)) return false;
+
+        if (Duration.between(user.getOtpGeneratedTime(), LocalDateTime.now()).toMinutes() > 5) return false;
+
+        user.setIsVerified(true);
+        user.setOtp(null);
+        userRepository.save(user);
+
+        return true;
+    }
+
+    @Override
+    public void sendOtp(Object emailOrMobile) 
+    {
+        generateOtp(String.valueOf(emailOrMobile));
+    }
+}
+
+
+
+
+BackendApplication.java
+package com.erms.backend;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+import com.google.auth.oauth2.GoogleCredentials;
+import com.google.firebase.FirebaseApp;
+import com.google.firebase.FirebaseOptions;
+
+import jakarta.annotation.PostConstruct;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+
+@SpringBootApplication
+public class BackendApplication {
+
+	public static void main(String[] args) 
+	{
+		SpringApplication.run(BackendApplication.class, args);
+	}
+	
+	@PostConstruct
+    public void initFirebase() throws IOException 
+	{
+        InputStream serviceAccount = new FileInputStream("src/main/resources/firebase/your-service-account.json");
+        FirebaseOptions options = FirebaseOptions.builder()
+            .setCredentials(GoogleCredentials.fromStream(serviceAccount))
+            .build();
+
+        if (FirebaseApp.getApps().isEmpty()) 
+        {
+            FirebaseApp.initializeApp(options);
+        }
+    }
+}
