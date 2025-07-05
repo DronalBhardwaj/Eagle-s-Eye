@@ -28,11 +28,7 @@ src/
 
 AuthController.java
 package com.erms.backend.controller;
-
-import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
-import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier;
-import com.google.api.client.googleapis.javanet.NetHttpTransport;
-import com.google.api.client.json.GsonFactory;  
+ 
 import com.google.firebase.auth.FirebaseToken;
 import com.erms.backend.dto.*;
 import com.erms.backend.entity.User;
@@ -67,8 +63,6 @@ public class AuthController {
 
     @Autowired
     private JwtUtil jwtUtil;
-
-    private final String GOOGLE_CLIENT_ID = "443748242715-1dvtft3ml3ed7q8492auencem9s1rpq3.apps.googleusercontent.com"; //YOUR_WEB_CLIENT_ID_FROM_FIREBASE
 
     @PostMapping("/verify-firebase-token")
     public ResponseEntity<?> verifyFirebaseToken(@RequestBody Map<String, String> request) {
@@ -144,48 +138,30 @@ public class AuthController {
     @PostMapping("/google")
     public ResponseEntity<?> authenticateViaGoogle(@RequestBody Map<String, String> body) {
         String token = body.get("token");
+
         try {
-            GoogleIdToken.Payload payload = verifyGoogleToken(token);
-            if (payload == null) {
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid Google token");
-            }
+            FirebaseToken decodedToken = firebaseTokenService.verifyToken(token);
+            String email = decodedToken.getEmail();
+            String name = (String) decodedToken.getClaims().get("name");
+            String picture = (String) decodedToken.getClaims().get("picture");
 
-            String email = payload.getEmail();
-            String name = (String) payload.get("name");
-            String picture = (String) payload.get("picture");
-
-            Optional<User> optionalUser = userRepository.findByEmail(email);
+            Optional<User> optionalUser = userRepository.findByEmailOrMobile(email);
             User user = optionalUser.orElseGet(User::new);
 
-            user.setEmail(email);
-            user.setName(name);
-            user.setProfilePicture(picture);
+            user.setEmailOrMobile(email);
             user.setProvider("GOOGLE");
+            // You need to add `name` and `picture` fields to User.java if you want these
             userRepository.save(user);
 
-            String jwt = jwtUtil.generateToken(user);
+            String jwt = jwtUtil.generateToken(email); // use email for now
 
             return ResponseEntity.ok(Map.of("jwt", jwt));
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Google login failed: " + e.getMessage());
-        }
-    }
-
-    private GoogleIdToken.Payload verifyGoogleToken(String idTokenString) {
-        try {
-            GoogleIdTokenVerifier verifier = new GoogleIdTokenVerifier.Builder(
-                    new NetHttpTransport(), new GsonFactory())
-                    .setAudience(Collections.singletonList(GOOGLE_CLIENT_ID))
-                    .build();
-
-            GoogleIdToken idToken = verifier.verify(idTokenString);
-            return idToken != null ? idToken.getPayload() : null;
-        } catch (Exception e) {
-            e.printStackTrace();
-            return null;
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Google login failed: " + e.getMessage());
         }
     }
 }
+
 
 
 
@@ -405,12 +381,20 @@ public class User
     private Long id;
 
     private String emailOrMobile;
-    private String picture;
     private String otp;
     private Boolean isVerified = false;
     private String provider; // for OAuth
     private LocalDateTime otpGeneratedTime;
     private String password;  // hashed password
+    private String name;
+    private String profilePicture;
+
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+
+    public String getProfilePicture() { return profilePicture; }
+    public void setProfilePicture(String profilePicture) { this.profilePicture = profilePicture; }
+
 
 	// Getter + setter
 	public String getPassword() { return password; }
