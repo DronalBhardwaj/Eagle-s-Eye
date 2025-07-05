@@ -636,7 +636,7 @@ public interface OtpService
 }
 
 
-OtpServiceImpl.java
+AuthServiceImpl.java
 package com.erms.backend.service.impl;
 
 import com.erms.backend.dto.TokenResponseDTO;
@@ -645,12 +645,16 @@ import com.erms.backend.repository.UserRepository;
 import com.erms.backend.security.JwtUtil;
 import com.erms.backend.service.AuthService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
-
-import java.util.List;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
 import java.util.Map;
+import java.util.List;
 
 @Service
 public class AuthServiceImpl implements AuthService {
@@ -731,8 +735,6 @@ public class AuthServiceImpl implements AuthService {
                     + "&redirect_uri=" + redirectUri
                     + "&client_id=" + clientId
                     + "&client_secret=" + clientSecret;
-
-                RestTemplate restTemplate = new RestTemplate();
                 Map<String, Object> tokenResponse = restTemplate.postForObject(accessTokenUrl, null, Map.class);
                 if (tokenResponse == null || !tokenResponse.containsKey("access_token")) {
                     throw new RuntimeException("Failed to retrieve LinkedIn access token");
@@ -754,7 +756,6 @@ public class AuthServiceImpl implements AuthService {
                 }
 
                 emailOrMobile = (String) userInfo.get("email");
-            }
 
             } else if ("github".equalsIgnoreCase(provider)) {
                 String url = "https://api.github.com/user/emails";
@@ -811,6 +812,8 @@ public class AuthServiceImpl implements AuthService {
     }
 
 }
+
+
 
 
 
