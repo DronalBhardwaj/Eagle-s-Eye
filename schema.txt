@@ -1,6 +1,3 @@
--- GETProjectDetails() does not show project details instead user names
-
-
 CREATE DATABASE ERMS;
 USE ERMS;
 
@@ -25,6 +22,32 @@ CREATE TABLE Users
     user_image BLOB,
     active_on TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     deactive_on TIMESTAMP DEFAULT null
+);
+
+
+CREATE TABLE refresh_tokens (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  token VARCHAR(512) NOT NULL,
+  device_info TEXT,
+  ip_address VARCHAR(45),
+  user_agent TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  expires_at TIMESTAMP,
+  last_used_at TIMESTAMP NULL,
+  token_family VARCHAR(255),
+  is_revoked BOOLEAN DEFAULT FALSE,
+  FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
+);
+
+
+CREATE TABLE login_audit_log (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT,
+  event_type ENUM('LOGIN', 'LOGOUT', 'REFRESH'),
+  ip_address VARCHAR(45),
+  user_agent TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 
@@ -294,6 +317,117 @@ END $$
 DELIMITER ;
 
 
+DELIMITER $$
+
+CREATE PROCEDURE InsertRefreshTokenFromJSON (
+  IN p_token_data JSON
+)
+BEGIN
+  DECLARE v_user_id INT;
+  DECLARE v_token TEXT;
+  DECLARE v_device_info TEXT;
+  DECLARE v_ip_address VARCHAR(45);
+  DECLARE v_user_agent TEXT;
+  DECLARE v_expires_at TIMESTAMP;
+  DECLARE v_token_family VARCHAR(255);
+
+  -- Extract values from JSON input
+  SET v_user_id = JSON_UNQUOTE(JSON_EXTRACT(p_token_data, '$.user_id'));
+  SET v_token = JSON_UNQUOTE(JSON_EXTRACT(p_token_data, '$.token'));
+  SET v_device_info = JSON_UNQUOTE(JSON_EXTRACT(p_token_data, '$.device_info'));
+  SET v_ip_address = JSON_UNQUOTE(JSON_EXTRACT(p_token_data, '$.ip_address'));
+  SET v_user_agent = JSON_UNQUOTE(JSON_EXTRACT(p_token_data, '$.user_agent'));
+  SET v_expires_at = JSON_UNQUOTE(JSON_EXTRACT(p_token_data, '$.expires_at'));
+  SET v_token_family = JSON_UNQUOTE(JSON_EXTRACT(p_token_data, '$.token_family'));
+
+  -- Insert into refresh_tokens table
+  INSERT INTO refresh_tokens (
+    user_id, token, device_info, ip_address, user_agent,
+    expires_at, last_used_at, token_family
+  ) VALUES (
+    v_user_id, v_token, v_device_info, v_ip_address, v_user_agent,
+    v_expires_at, NULL, v_token_family
+  );
+END $$
+
+DELIMITER ;
+
+
+DELIMITER $$
+
+CREATE PROCEDURE UpdateLastUsedAtFromJSON (
+  IN p_token_data JSON
+)
+BEGIN
+  DECLARE v_token TEXT;
+
+  SET v_token = JSON_UNQUOTE(JSON_EXTRACT(p_token_data, '$.token'));
+
+  UPDATE refresh_tokens
+  SET last_used_at = CURRENT_TIMESTAMP
+  WHERE token = v_token AND is_revoked = FALSE;
+END $$
+
+DELIMITER ;
+
+
+DELIMITER $$
+
+CREATE PROCEDURE RevokeRefreshTokenFromJSON (
+  IN p_token_data JSON
+)
+BEGIN
+  DECLARE v_token TEXT;
+
+  SET v_token = JSON_UNQUOTE(JSON_EXTRACT(p_token_data, '$.token'));
+
+  UPDATE refresh_tokens
+  SET is_revoked = TRUE
+  WHERE token = v_token;
+END $$
+
+DELIMITER ;
+
+
+DELIMITER $$
+
+CREATE PROCEDURE GetUserSessionDashboard (
+  IN p_user_id INT
+)
+BEGIN
+  SELECT JSON_ARRAYAGG(
+    JSON_OBJECT(
+      'session_id', id,
+      'device_info', device_info,
+      'ip_address', ip_address,
+      'user_agent', user_agent,
+      'created_at', created_at,
+      'expires_at', expires_at,
+      'last_used_at', last_used_at,
+      'token_family', token_family
+    )
+  ) AS active_sessions
+  FROM refresh_tokens
+  WHERE user_id = p_user_id AND is_revoked = FALSE;
+END $$
+
+DELIMITER ;
+
+
+DELIMITER $$
+
+CREATE PROCEDURE RevokeAllUserSessions (
+  IN p_user_id INT
+)
+BEGIN
+  UPDATE refresh_tokens
+  SET is_revoked = TRUE
+  WHERE user_id = p_user_id AND is_revoked = FALSE;
+END $$
+
+DELIMITER ;
+
+
 --Procedure for Dashboard Counter
 DELIMITER $$
 
@@ -385,14 +519,14 @@ DELIMITER ;
 
 
 --Procedure for displaying all Departments
-
-
 DELIMITER $$
 
 CREATE PROCEDURE displayDepartments()
 BEGIN
-    SELECT JSON_ARRAYAGG(
-        JSON_OBJECT(
+    SELECT JSON_ARRAYAGG
+    (
+        JSON_OBJECT
+        (
             'dept_id', dept_id,
             'department', department,
             'department_status', department_status,
@@ -410,8 +544,10 @@ DELIMITER $$
 
 CREATE PROCEDURE displayTechnologies()
 BEGIN
-    SELECT JSON_ARRAYAGG(
-        JSON_OBJECT(
+    SELECT JSON_ARRAYAGG
+    (
+        JSON_OBJECT
+        (
             'tech_id', tech_id,
             'technology', technology,
             'technology_status', technology_status,
@@ -901,22 +1037,22 @@ DELIMITER ;
 
 
 -- Procedure to display all Project Details
-
-
 DELIMITER $$
 
 CREATE PROCEDURE GetUserProjectDetails(IN p_user_id INT)
 BEGIN
     DECLARE v_user_name VARCHAR(255);
 
-    -- Step 1: Get the user name for matching
+    -- Retrieve user_name associated with the provided user_id
     SELECT user_name INTO v_user_name
     FROM Users
     WHERE user_id = p_user_id;
 
-    -- Step 2: Return all matching project details as JSON
-    SELECT JSON_ARRAYAGG(
-        JSON_OBJECT(
+    -- Return matching project details as JSON array
+    SELECT JSON_ARRAYAGG
+    (
+        JSON_OBJECT
+        (
             'project_id', pd.project_id,
             'project_name', pd.project_name,
             'client_name', pd.client_name,
@@ -938,12 +1074,10 @@ BEGIN
             FROM (
                 SELECT TRIM(SUBSTRING_INDEX(manager, ' (', 1)) AS manager_name
                 FROM (
-                    SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(pd.manager_details, ', ', n.digit + 1), ', ', -1) AS manager
+                    SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(pd.manager_details, ', ', n.digit+1), ', ', -1) AS manager
                     FROM (
-                        SELECT 0 digit UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 
-                        UNION SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9
-                        UNION SELECT 10 UNION SELECT 11 UNION SELECT 12 UNION SELECT 13 UNION SELECT 14 
-                        UNION SELECT 15 UNION SELECT 16 UNION SELECT 17 UNION SELECT 18 UNION SELECT 19
+                        SELECT 0 digit UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION 
+                               SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9
                     ) n
                     WHERE LENGTH(pd.manager_details) - LENGTH(REPLACE(pd.manager_details, ',', '')) >= n.digit
                 ) managers
@@ -955,12 +1089,10 @@ BEGIN
             FROM (
                 SELECT TRIM(SUBSTRING_INDEX(employee, ' (', 1)) AS employee_name
                 FROM (
-                    SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(pd.employee_details, ', ', n.digit + 1), ', ', -1) AS employee
+                    SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(pd.employee_details, ', ', n.digit+1), ', ', -1) AS employee
                     FROM (
-                        SELECT 0 digit UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 
-                        UNION SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9
-                        UNION SELECT 10 UNION SELECT 11 UNION SELECT 12 UNION SELECT 13 UNION SELECT 14 
-                        UNION SELECT 15 UNION SELECT 16 UNION SELECT 17 UNION SELECT 18 UNION SELECT 19
+                        SELECT 0 digit UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION 
+                               SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9
                     ) n
                     WHERE LENGTH(pd.employee_details) - LENGTH(REPLACE(pd.employee_details, ',', '')) >= n.digit
                 ) employees
@@ -1544,7 +1676,6 @@ DELIMITER ;
 
 
 -- Get or Display User details of any new user for edit
-
 DELIMITER $$
 
 CREATE PROCEDURE GetUserProfileByAdminWithSignupOptions
@@ -1598,11 +1729,14 @@ BEGIN
                 'user_type', v_user_type,
                 'user_name', v_user_name,
                 'date_of_birth', v_date_of_birth,
-                'designation_info', 
+                'designation_info', -- This is the single field containing both designation data
                 JSON_OBJECT
                 (
-                    'dropdown_options', 
-                    (SELECT JSON_ARRAYAGG(d.designation_name) FROM Designation d)
+                    'dropdown_options',                         -- The list for the dropdown
+                    (
+                        SELECT JSON_ARRAYAGG(d.designation_name)
+                        FROM Designation d
+                    )
                 ),
                 'signup_method', v_signup_method,
                 'mobile_number', v_mobile_number,
@@ -1610,9 +1744,13 @@ BEGIN
                 'user_image', TO_BASE64(IFNULL(v_user_image, '')),
                 'active_on', v_active_on
             ),
-            'signup_method_options',
-            JSON_ARRAYAGG(
-                TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(enum_signup_methods, ',', numbers.n), ',', -1))
+            'signup_method_options', JSON_ARRAYAGG
+            (
+                TRIM(BOTH ' ' FROM 
+                    TRIM(BOTH '"' FROM 
+                        SUBSTRING_INDEX(SUBSTRING_INDEX(enum_signup_methods, ',', n), ',', -1)
+                    )
+                )
             )
         ) AS user_profile_data
         FROM
@@ -1693,8 +1831,6 @@ DELIMITER ;
 
 
 -- Display the profile data of all approved employees
-
-
 DELIMITER $$
 
 CREATE PROCEDURE GetAllApprovedUsersByAdmin
@@ -1711,8 +1847,10 @@ BEGIN
 
     -- If admin, return all approved users as JSON
     IF is_admin = 1 THEN
-        SELECT JSON_ARRAYAGG(
-            JSON_OBJECT(
+        SELECT JSON_ARRAYAGG
+        (
+            JSON_OBJECT
+            (
                 'user_id', user_id,
                 'user_type', user_type,
                 'user_name', user_name,
@@ -1919,7 +2057,6 @@ DELIMITER ;
 
 
 -- Procedure to return blank form and return dropdown values for new user creation
-
 DELIMITER $$
 
 CREATE PROCEDURE GetDropdownValuesForNewUser
@@ -1985,9 +2122,9 @@ BEGIN
               AND numbers.n <= LENGTH(column_type) - LENGTH(REPLACE(column_type, ',', '')) + 1
         ) AS enum_vals;
 
-        -- Get designations (fix: use singular `Designation`)
+        -- Get designations
         SELECT JSON_ARRAYAGG(designation_name) INTO designations_json
-        FROM Designation;
+        FROM Designations;
 
         -- Return all dropdown options
         SELECT JSON_OBJECT
